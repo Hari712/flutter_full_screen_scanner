@@ -6,10 +6,10 @@ repository: https://github.com/example/full_screen_scanner
 issue_tracker: https://github.com/example/full_screen_scanner/issues
 topics:
   - scanner
-  - qr_code
+  - qr-code
   - barcode
   - camera
-  - ml_kit
+  - ml-kit
 environment:
   sdk: ^3.12.2
   flutter: '>=3.3.0'
