@@ -1,0 +1,10 @@
+# melos_managed_dependency_overrides: flutter_full_screen_scanner,flutter_full_screen_scanner_android,flutter_full_screen_scanner_ios,flutter_full_screen_scanner_platform_interface
+dependency_overrides:
+  flutter_full_screen_scanner:
+    path: ..
+  flutter_full_screen_scanner_android:
+    path: ../../flutter_full_screen_scanner_android
+  flutter_full_screen_scanner_ios:
+    path: ../../flutter_full_screen_scanner_ios
+  flutter_full_screen_scanner_platform_interface:
+    path: ../../flutter_full_screen_scanner_platform_interface
