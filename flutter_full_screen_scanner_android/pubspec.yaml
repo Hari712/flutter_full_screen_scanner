@@ -1,9 +1,9 @@
 name: flutter_full_screen_scanner_android
 description: Android implementation of the flutter_full_screen_scanner plugin using CameraX and ML Kit.
-version: 1.0.0
-homepage: https://github.com/example/full_screen_scanner
-repository: https://github.com/example/full_screen_scanner
-issue_tracker: https://github.com/example/full_screen_scanner/issues
+version: 1.0.1
+homepage: https://github.com/Hari712/flutter_full_screen_scanner
+repository: https://github.com/Hari712/flutter_full_screen_scanner
+issue_tracker: https://github.com/Hari712/flutter_full_screen_scanner/issues
 environment:
   sdk: ^3.12.2
   flutter: '>=3.3.0'
