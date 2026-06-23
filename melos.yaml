@@ -1,0 +1,21 @@
+name: full_screen_scanner
+
+packages:
+  - flutter_full_screen_scanner
+  - flutter_full_screen_scanner_android
+  - flutter_full_screen_scanner_ios
+  - flutter_full_screen_scanner_platform_interface
+
+scripts:
+  analyze:
+    run: dart run melos exec -c 1 -- "flutter analyze ."
+    description: Run flutter analyze for all packages.
+  test:
+    run: dart run melos exec -c 1 --dir-exists="test" -- "flutter test"
+    description: Run flutter test for all packages.
+  format:
+    run: dart run melos exec -c 1 -- "dart format ."
+    description: Run dart format for all packages.
+  publish-dry-run:
+    run: dart run melos exec -c 1 -- "flutter pub publish --dry-run"
+    description: Run a dry-run publish for all packages.
