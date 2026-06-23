@@ -1,5 +1,6 @@
 import 'package:plugin_platform_interface/plugin_platform_interface.dart';
 import 'messages.g.dart';
+
 ///
 /// Platform implementations should extend this class rather than implement it.
 /// Extending this class (using `extends`) ensures that the subclass will get

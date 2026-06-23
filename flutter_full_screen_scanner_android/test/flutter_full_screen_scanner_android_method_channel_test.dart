@@ -5,8 +5,11 @@ import 'package:flutter_full_screen_scanner_android/flutter_full_screen_scanner_
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
-  MethodChannelFlutterFullScreenScannerAndroid platform = MethodChannelFlutterFullScreenScannerAndroid();
-  const MethodChannel channel = MethodChannel('flutter_full_screen_scanner_android');
+  MethodChannelFlutterFullScreenScannerAndroid platform =
+      MethodChannelFlutterFullScreenScannerAndroid();
+  const MethodChannel channel = MethodChannel(
+    'flutter_full_screen_scanner_android',
+  );
 
   setUp(() {
     TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger

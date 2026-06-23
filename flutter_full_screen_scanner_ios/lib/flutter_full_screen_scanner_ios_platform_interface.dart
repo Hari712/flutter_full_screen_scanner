@@ -8,7 +8,8 @@ abstract class FlutterFullScreenScannerIosPlatform extends PlatformInterface {
 
   static final Object _token = Object();
 
-  static FlutterFullScreenScannerIosPlatform _instance = MethodChannelFlutterFullScreenScannerIos();
+  static FlutterFullScreenScannerIosPlatform _instance =
+      MethodChannelFlutterFullScreenScannerIos();
 
   /// The default instance of [FlutterFullScreenScannerIosPlatform] to use.
   ///

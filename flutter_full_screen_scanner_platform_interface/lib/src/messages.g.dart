@@ -10,9 +10,9 @@ import 'package:flutter/services.dart';
 import 'package:meta/meta.dart' show immutable, protected, visibleForTesting;
 
 Object? _extractReplyValueOrThrow(
-    List<Object?>? replyList,
-    String channelName, {
-    required bool isNullValid,
+  List<Object?>? replyList,
+  String channelName, {
+  required bool isNullValid,
 }) {
   if (replyList == null) {
     throw PlatformException(
@@ -46,8 +46,9 @@ bool _deepEquals(Object? a, Object? b) {
   }
   if (a is List && b is List) {
     return a.length == b.length &&
-        a.indexed
-            .every(((int, dynamic) item) => _deepEquals(item.$2, b[item.$1]));
+        a.indexed.every(
+          ((int, dynamic) item) => _deepEquals(item.$2, b[item.$1]),
+        );
   }
   if (a is Map && b is Map) {
     if (a.length != b.length) {
@@ -96,12 +97,7 @@ int _deepHash(Object? value) {
   return value.hashCode;
 }
 
-
-enum ScanModeData {
-  barcode,
-  qr,
-  all,
-}
+enum ScanModeData { barcode, qr, all }
 
 enum BarcodeFormatData {
   allFormats,
@@ -121,24 +117,19 @@ enum BarcodeFormatData {
 }
 
 class ScanWindowData {
-  ScanWindowData({
-    this.widthFactor,
-    this.heightFactor,
-  });
+  ScanWindowData({this.widthFactor, this.heightFactor});
 
   double? widthFactor;
 
   double? heightFactor;
 
   List<Object?> _toList() {
-    return <Object?>[
-      widthFactor,
-      heightFactor,
-    ];
+    return <Object?>[widthFactor, heightFactor];
   }
 
   Object encode() {
-    return _toList();  }
+    return _toList();
+  }
 
   static ScanWindowData decode(Object result) {
     result as List<Object?>;
@@ -157,7 +148,8 @@ class ScanWindowData {
     if (identical(this, other)) {
       return true;
     }
-    return _deepEquals(widthFactor, other.widthFactor) && _deepEquals(heightFactor, other.heightFactor);
+    return _deepEquals(widthFactor, other.widthFactor) &&
+        _deepEquals(heightFactor, other.heightFactor);
   }
 
   @override
@@ -248,7 +240,8 @@ class ScannerOptionsData {
   }
 
   Object encode() {
-    return _toList();  }
+    return _toList();
+  }
 
   static ScannerOptionsData decode(Object result) {
     result as List<Object?>;
@@ -265,7 +258,8 @@ class ScannerOptionsData {
       allowDuplicate: result[9] as bool?,
       duplicateDelay: result[10] as int?,
       scanInterval: result[11] as int?,
-      supportedFormats: (result[12] as List<Object?>?)?.cast<BarcodeFormatData?>(),
+      supportedFormats: (result[12] as List<Object?>?)
+          ?.cast<BarcodeFormatData?>(),
       scanWindow: result[13] as ScanWindowData?,
       autoZoom: result[14] as bool?,
       imageQuality: result[15] as double?,
@@ -282,7 +276,23 @@ class ScannerOptionsData {
     if (identical(this, other)) {
       return true;
     }
-    return _deepEquals(scanMode, other.scanMode) && _deepEquals(continuous, other.continuous) && _deepEquals(enableFlash, other.enableFlash) && _deepEquals(enableGallery, other.enableGallery) && _deepEquals(enableCameraSwitch, other.enableCameraSwitch) && _deepEquals(enableBeep, other.enableBeep) && _deepEquals(enableVibration, other.enableVibration) && _deepEquals(enableImageCapture, other.enableImageCapture) && _deepEquals(enableImageAnnotation, other.enableImageAnnotation) && _deepEquals(allowDuplicate, other.allowDuplicate) && _deepEquals(duplicateDelay, other.duplicateDelay) && _deepEquals(scanInterval, other.scanInterval) && _deepEquals(supportedFormats, other.supportedFormats) && _deepEquals(scanWindow, other.scanWindow) && _deepEquals(autoZoom, other.autoZoom) && _deepEquals(imageQuality, other.imageQuality) && _deepEquals(confidenceThreshold, other.confidenceThreshold);
+    return _deepEquals(scanMode, other.scanMode) &&
+        _deepEquals(continuous, other.continuous) &&
+        _deepEquals(enableFlash, other.enableFlash) &&
+        _deepEquals(enableGallery, other.enableGallery) &&
+        _deepEquals(enableCameraSwitch, other.enableCameraSwitch) &&
+        _deepEquals(enableBeep, other.enableBeep) &&
+        _deepEquals(enableVibration, other.enableVibration) &&
+        _deepEquals(enableImageCapture, other.enableImageCapture) &&
+        _deepEquals(enableImageAnnotation, other.enableImageAnnotation) &&
+        _deepEquals(allowDuplicate, other.allowDuplicate) &&
+        _deepEquals(duplicateDelay, other.duplicateDelay) &&
+        _deepEquals(scanInterval, other.scanInterval) &&
+        _deepEquals(supportedFormats, other.supportedFormats) &&
+        _deepEquals(scanWindow, other.scanWindow) &&
+        _deepEquals(autoZoom, other.autoZoom) &&
+        _deepEquals(imageQuality, other.imageQuality) &&
+        _deepEquals(confidenceThreshold, other.confidenceThreshold);
   }
 
   @override
@@ -296,31 +306,23 @@ class ScannerOptionsData {
 }
 
 class PointData {
-  PointData({
-    this.x,
-    this.y,
-  });
+  PointData({this.x, this.y});
 
   double? x;
 
   double? y;
 
   List<Object?> _toList() {
-    return <Object?>[
-      x,
-      y,
-    ];
+    return <Object?>[x, y];
   }
 
   Object encode() {
-    return _toList();  }
+    return _toList();
+  }
 
   static PointData decode(Object result) {
     result as List<Object?>;
-    return PointData(
-      x: result[0] as double?,
-      y: result[1] as double?,
-    );
+    return PointData(x: result[0] as double?, y: result[1] as double?);
   }
 
   @override
@@ -383,7 +385,8 @@ class ScannerResultData {
   }
 
   Object encode() {
-    return _toList();  }
+    return _toList();
+  }
 
   static ScannerResultData decode(Object result) {
     result as List<Object?>;
@@ -407,7 +410,13 @@ class ScannerResultData {
     if (identical(this, other)) {
       return true;
     }
-    return _deepEquals(value, other.value) && _deepEquals(type, other.type) && _deepEquals(imageBytes, other.imageBytes) && _deepEquals(corners, other.corners) && _deepEquals(imageWidth, other.imageWidth) && _deepEquals(imageHeight, other.imageHeight) && _deepEquals(timestamp, other.timestamp);
+    return _deepEquals(value, other.value) &&
+        _deepEquals(type, other.type) &&
+        _deepEquals(imageBytes, other.imageBytes) &&
+        _deepEquals(corners, other.corners) &&
+        _deepEquals(imageWidth, other.imageWidth) &&
+        _deepEquals(imageHeight, other.imageHeight) &&
+        _deepEquals(timestamp, other.timestamp);
   }
 
   @override
@@ -420,7 +429,6 @@ class ScannerResultData {
   }
 }
 
-
 class _PigeonCodec extends StandardMessageCodec {
   const _PigeonCodec();
   @override
@@ -428,22 +436,22 @@ class _PigeonCodec extends StandardMessageCodec {
     if (value is int) {
       buffer.putUint8(4);
       buffer.putInt64(value);
-    }    else if (value is ScanModeData) {
+    } else if (value is ScanModeData) {
       buffer.putUint8(129);
       writeValue(buffer, value.index);
-    }    else if (value is BarcodeFormatData) {
+    } else if (value is BarcodeFormatData) {
       buffer.putUint8(130);
       writeValue(buffer, value.index);
-    }    else if (value is ScanWindowData) {
+    } else if (value is ScanWindowData) {
       buffer.putUint8(131);
       writeValue(buffer, value.encode());
-    }    else if (value is ScannerOptionsData) {
+    } else if (value is ScannerOptionsData) {
       buffer.putUint8(132);
       writeValue(buffer, value.encode());
-    }    else if (value is PointData) {
+    } else if (value is PointData) {
       buffer.putUint8(133);
       writeValue(buffer, value.encode());
-    }    else if (value is ScannerResultData) {
+    } else if (value is ScannerResultData) {
       buffer.putUint8(134);
       writeValue(buffer, value.encode());
     } else {
@@ -478,9 +486,13 @@ class ScannerHostApi {
   /// Constructor for [ScannerHostApi]. The [binaryMessenger] named argument is
   /// available for dependency injection. If it is left null, the default
   /// BinaryMessenger will be used which routes to the host platform.
-  ScannerHostApi({BinaryMessenger? binaryMessenger, String messageChannelSuffix = ''})
-      : pigeonVar_binaryMessenger = binaryMessenger,
-        pigeonVar_messageChannelSuffix = messageChannelSuffix.isNotEmpty ? '.$messageChannelSuffix' : '';
+  ScannerHostApi({
+    BinaryMessenger? binaryMessenger,
+    String messageChannelSuffix = '',
+  }) : pigeonVar_binaryMessenger = binaryMessenger,
+       pigeonVar_messageChannelSuffix = messageChannelSuffix.isNotEmpty
+           ? '.$messageChannelSuffix'
+           : '';
   final BinaryMessenger? pigeonVar_binaryMessenger;
 
   static const MessageCodec<Object?> pigeonChannelCodec = _PigeonCodec();
@@ -488,7 +500,8 @@ class ScannerHostApi {
   final String pigeonVar_messageChannelSuffix;
 
   Future<void> pause() async {
-    final pigeonVar_channelName = 'dev.flutter.pigeon.flutter_full_screen_scanner_platform_interface.ScannerHostApi.pause$pigeonVar_messageChannelSuffix';
+    final pigeonVar_channelName =
+        'dev.flutter.pigeon.flutter_full_screen_scanner_platform_interface.ScannerHostApi.pause$pigeonVar_messageChannelSuffix';
     final pigeonVar_channel = BasicMessageChannel<Object?>(
       pigeonVar_channelName,
       pigeonChannelCodec,
@@ -498,15 +511,15 @@ class ScannerHostApi {
     final pigeonVar_replyList = await pigeonVar_sendFuture as List<Object?>?;
 
     _extractReplyValueOrThrow(
-        pigeonVar_replyList,
-        pigeonVar_channelName,
-        isNullValid: true,
-    )
-    ;
+      pigeonVar_replyList,
+      pigeonVar_channelName,
+      isNullValid: true,
+    );
   }
 
   Future<void> resume() async {
-    final pigeonVar_channelName = 'dev.flutter.pigeon.flutter_full_screen_scanner_platform_interface.ScannerHostApi.resume$pigeonVar_messageChannelSuffix';
+    final pigeonVar_channelName =
+        'dev.flutter.pigeon.flutter_full_screen_scanner_platform_interface.ScannerHostApi.resume$pigeonVar_messageChannelSuffix';
     final pigeonVar_channel = BasicMessageChannel<Object?>(
       pigeonVar_channelName,
       pigeonChannelCodec,
@@ -516,15 +529,15 @@ class ScannerHostApi {
     final pigeonVar_replyList = await pigeonVar_sendFuture as List<Object?>?;
 
     _extractReplyValueOrThrow(
-        pigeonVar_replyList,
-        pigeonVar_channelName,
-        isNullValid: true,
-    )
-    ;
+      pigeonVar_replyList,
+      pigeonVar_channelName,
+      isNullValid: true,
+    );
   }
 
   Future<void> stop() async {
-    final pigeonVar_channelName = 'dev.flutter.pigeon.flutter_full_screen_scanner_platform_interface.ScannerHostApi.stop$pigeonVar_messageChannelSuffix';
+    final pigeonVar_channelName =
+        'dev.flutter.pigeon.flutter_full_screen_scanner_platform_interface.ScannerHostApi.stop$pigeonVar_messageChannelSuffix';
     final pigeonVar_channel = BasicMessageChannel<Object?>(
       pigeonVar_channelName,
       pigeonChannelCodec,
@@ -534,15 +547,15 @@ class ScannerHostApi {
     final pigeonVar_replyList = await pigeonVar_sendFuture as List<Object?>?;
 
     _extractReplyValueOrThrow(
-        pigeonVar_replyList,
-        pigeonVar_channelName,
-        isNullValid: true,
-    )
-    ;
+      pigeonVar_replyList,
+      pigeonVar_channelName,
+      isNullValid: true,
+    );
   }
 
   Future<bool> toggleFlash() async {
-    final pigeonVar_channelName = 'dev.flutter.pigeon.flutter_full_screen_scanner_platform_interface.ScannerHostApi.toggleFlash$pigeonVar_messageChannelSuffix';
+    final pigeonVar_channelName =
+        'dev.flutter.pigeon.flutter_full_screen_scanner_platform_interface.ScannerHostApi.toggleFlash$pigeonVar_messageChannelSuffix';
     final pigeonVar_channel = BasicMessageChannel<Object?>(
       pigeonVar_channelName,
       pigeonChannelCodec,
@@ -552,16 +565,16 @@ class ScannerHostApi {
     final pigeonVar_replyList = await pigeonVar_sendFuture as List<Object?>?;
 
     final Object? pigeonVar_replyValue = _extractReplyValueOrThrow(
-        pigeonVar_replyList,
-        pigeonVar_channelName,
-        isNullValid: false,
-    )
-    ;
+      pigeonVar_replyList,
+      pigeonVar_channelName,
+      isNullValid: false,
+    );
     return pigeonVar_replyValue! as bool;
   }
 
   Future<void> switchCamera() async {
-    final pigeonVar_channelName = 'dev.flutter.pigeon.flutter_full_screen_scanner_platform_interface.ScannerHostApi.switchCamera$pigeonVar_messageChannelSuffix';
+    final pigeonVar_channelName =
+        'dev.flutter.pigeon.flutter_full_screen_scanner_platform_interface.ScannerHostApi.switchCamera$pigeonVar_messageChannelSuffix';
     final pigeonVar_channel = BasicMessageChannel<Object?>(
       pigeonVar_channelName,
       pigeonChannelCodec,
@@ -571,52 +584,56 @@ class ScannerHostApi {
     final pigeonVar_replyList = await pigeonVar_sendFuture as List<Object?>?;
 
     _extractReplyValueOrThrow(
-        pigeonVar_replyList,
-        pigeonVar_channelName,
-        isNullValid: true,
-    )
-    ;
+      pigeonVar_replyList,
+      pigeonVar_channelName,
+      isNullValid: true,
+    );
   }
 
   Future<void> focusAt(double x, double y) async {
-    final pigeonVar_channelName = 'dev.flutter.pigeon.flutter_full_screen_scanner_platform_interface.ScannerHostApi.focusAt$pigeonVar_messageChannelSuffix';
+    final pigeonVar_channelName =
+        'dev.flutter.pigeon.flutter_full_screen_scanner_platform_interface.ScannerHostApi.focusAt$pigeonVar_messageChannelSuffix';
     final pigeonVar_channel = BasicMessageChannel<Object?>(
       pigeonVar_channelName,
       pigeonChannelCodec,
       binaryMessenger: pigeonVar_binaryMessenger,
     );
-    final Future<Object?> pigeonVar_sendFuture = pigeonVar_channel.send(<Object?>[x, y]);
+    final Future<Object?> pigeonVar_sendFuture = pigeonVar_channel.send(
+      <Object?>[x, y],
+    );
     final pigeonVar_replyList = await pigeonVar_sendFuture as List<Object?>?;
 
     _extractReplyValueOrThrow(
-        pigeonVar_replyList,
-        pigeonVar_channelName,
-        isNullValid: true,
-    )
-    ;
+      pigeonVar_replyList,
+      pigeonVar_channelName,
+      isNullValid: true,
+    );
   }
 
   Future<List<ScannerResultData?>> scanImage(String path) async {
-    final pigeonVar_channelName = 'dev.flutter.pigeon.flutter_full_screen_scanner_platform_interface.ScannerHostApi.scanImage$pigeonVar_messageChannelSuffix';
+    final pigeonVar_channelName =
+        'dev.flutter.pigeon.flutter_full_screen_scanner_platform_interface.ScannerHostApi.scanImage$pigeonVar_messageChannelSuffix';
     final pigeonVar_channel = BasicMessageChannel<Object?>(
       pigeonVar_channelName,
       pigeonChannelCodec,
       binaryMessenger: pigeonVar_binaryMessenger,
     );
-    final Future<Object?> pigeonVar_sendFuture = pigeonVar_channel.send(<Object?>[path]);
+    final Future<Object?> pigeonVar_sendFuture = pigeonVar_channel.send(
+      <Object?>[path],
+    );
     final pigeonVar_replyList = await pigeonVar_sendFuture as List<Object?>?;
 
     final Object? pigeonVar_replyValue = _extractReplyValueOrThrow(
-        pigeonVar_replyList,
-        pigeonVar_channelName,
-        isNullValid: false,
-    )
-    ;
+      pigeonVar_replyList,
+      pigeonVar_channelName,
+      isNullValid: false,
+    );
     return (pigeonVar_replyValue! as List<Object?>).cast<ScannerResultData?>();
   }
 
   Future<void> dispose() async {
-    final pigeonVar_channelName = 'dev.flutter.pigeon.flutter_full_screen_scanner_platform_interface.ScannerHostApi.dispose$pigeonVar_messageChannelSuffix';
+    final pigeonVar_channelName =
+        'dev.flutter.pigeon.flutter_full_screen_scanner_platform_interface.ScannerHostApi.dispose$pigeonVar_messageChannelSuffix';
     final pigeonVar_channel = BasicMessageChannel<Object?>(
       pigeonVar_channelName,
       pigeonChannelCodec,
@@ -626,10 +643,9 @@ class ScannerHostApi {
     final pigeonVar_replyList = await pigeonVar_sendFuture as List<Object?>?;
 
     _extractReplyValueOrThrow(
-        pigeonVar_replyList,
-        pigeonVar_channelName,
-        isNullValid: true,
-    )
-    ;
+      pigeonVar_replyList,
+      pigeonVar_channelName,
+      isNullValid: true,
+    );
   }
 }

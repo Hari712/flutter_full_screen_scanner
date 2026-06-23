@@ -12,17 +12,29 @@ class MockFlutterFullScreenScannerAndroidPlatform
 }
 
 void main() {
-  final FlutterFullScreenScannerAndroidPlatform initialPlatform = FlutterFullScreenScannerAndroidPlatform.instance;
+  final FlutterFullScreenScannerAndroidPlatform initialPlatform =
+      FlutterFullScreenScannerAndroidPlatform.instance;
 
-  test('$MethodChannelFlutterFullScreenScannerAndroid is the default instance', () {
-    expect(initialPlatform, isInstanceOf<MethodChannelFlutterFullScreenScannerAndroid>());
-  });
+  test(
+    '$MethodChannelFlutterFullScreenScannerAndroid is the default instance',
+    () {
+      expect(
+        initialPlatform,
+        isInstanceOf<MethodChannelFlutterFullScreenScannerAndroid>(),
+      );
+    },
+  );
 
   test('getPlatformVersion', () async {
-    FlutterFullScreenScannerAndroid flutterFullScreenScannerAndroidPlugin = FlutterFullScreenScannerAndroid();
-    MockFlutterFullScreenScannerAndroidPlatform fakePlatform = MockFlutterFullScreenScannerAndroidPlatform();
+    FlutterFullScreenScannerAndroid flutterFullScreenScannerAndroidPlugin =
+        FlutterFullScreenScannerAndroid();
+    MockFlutterFullScreenScannerAndroidPlatform fakePlatform =
+        MockFlutterFullScreenScannerAndroidPlatform();
     FlutterFullScreenScannerAndroidPlatform.instance = fakePlatform;
 
-    expect(await flutterFullScreenScannerAndroidPlugin.getPlatformVersion(), '42');
+    expect(
+      await flutterFullScreenScannerAndroidPlugin.getPlatformVersion(),
+      '42',
+    );
   });
 }

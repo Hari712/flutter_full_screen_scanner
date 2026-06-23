@@ -2,13 +2,15 @@ import 'package:plugin_platform_interface/plugin_platform_interface.dart';
 
 import 'flutter_full_screen_scanner_android_method_channel.dart';
 
-abstract class FlutterFullScreenScannerAndroidPlatform extends PlatformInterface {
+abstract class FlutterFullScreenScannerAndroidPlatform
+    extends PlatformInterface {
   /// Constructs a FlutterFullScreenScannerAndroidPlatform.
   FlutterFullScreenScannerAndroidPlatform() : super(token: _token);
 
   static final Object _token = Object();
 
-  static FlutterFullScreenScannerAndroidPlatform _instance = MethodChannelFlutterFullScreenScannerAndroid();
+  static FlutterFullScreenScannerAndroidPlatform _instance =
+      MethodChannelFlutterFullScreenScannerAndroid();
 
   /// The default instance of [FlutterFullScreenScannerAndroidPlatform] to use.
   ///

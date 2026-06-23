@@ -1,19 +1,20 @@
 import 'package:pigeon/pigeon.dart';
 
-@ConfigurePigeon(PigeonOptions(
-  dartOut: 'lib/src/messages.g.dart',
-  dartOptions: DartOptions(),
-  kotlinOut: '../flutter_full_screen_scanner_android/android/src/main/kotlin/com/example/flutter_full_screen_scanner_android/Messages.g.kt',
-  kotlinOptions: KotlinOptions(package: 'com.example.flutter_full_screen_scanner_android'),
-  swiftOut: '../flutter_full_screen_scanner_ios/ios/flutter_full_screen_scanner_ios/Sources/flutter_full_screen_scanner_ios/Messages.g.swift',
-  swiftOptions: SwiftOptions(),
-))
-
-enum ScanModeData {
-  barcode,
-  qr,
-  all
-}
+@ConfigurePigeon(
+  PigeonOptions(
+    dartOut: 'lib/src/messages.g.dart',
+    dartOptions: DartOptions(),
+    kotlinOut:
+        '../flutter_full_screen_scanner_android/android/src/main/kotlin/com/example/flutter_full_screen_scanner_android/Messages.g.kt',
+    kotlinOptions: KotlinOptions(
+      package: 'com.example.flutter_full_screen_scanner_android',
+    ),
+    swiftOut:
+        '../flutter_full_screen_scanner_ios/ios/flutter_full_screen_scanner_ios/Sources/flutter_full_screen_scanner_ios/Messages.g.swift',
+    swiftOptions: SwiftOptions(),
+  ),
+)
+enum ScanModeData { barcode, qr, all }
 
 enum BarcodeFormatData {
   allFormats,
@@ -29,7 +30,7 @@ enum BarcodeFormatData {
   upcA,
   upcE,
   pdf417,
-  aztec
+  aztec,
 }
 
 class ScanWindowData {
@@ -80,9 +81,9 @@ abstract class ScannerHostApi {
   bool toggleFlash();
   void switchCamera();
   void focusAt(double x, double y);
-  
+
   @async
   List<ScannerResultData?> scanImage(String path);
-  
+
   void dispose();
 }

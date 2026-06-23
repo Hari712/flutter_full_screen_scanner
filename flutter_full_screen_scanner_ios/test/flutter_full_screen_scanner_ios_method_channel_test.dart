@@ -5,8 +5,11 @@ import 'package:flutter_full_screen_scanner_ios/flutter_full_screen_scanner_ios_
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
-  MethodChannelFlutterFullScreenScannerIos platform = MethodChannelFlutterFullScreenScannerIos();
-  const MethodChannel channel = MethodChannel('flutter_full_screen_scanner_ios');
+  MethodChannelFlutterFullScreenScannerIos platform =
+      MethodChannelFlutterFullScreenScannerIos();
+  const MethodChannel channel = MethodChannel(
+    'flutter_full_screen_scanner_ios',
+  );
 
   setUp(() {
     TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger

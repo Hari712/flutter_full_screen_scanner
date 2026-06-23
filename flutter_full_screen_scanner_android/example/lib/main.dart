@@ -17,7 +17,8 @@ class MyApp extends StatefulWidget {
 
 class _MyAppState extends State<MyApp> {
   String _platformVersion = 'Unknown';
-  final _flutterFullScreenScannerAndroidPlugin = FlutterFullScreenScannerAndroid();
+  final _flutterFullScreenScannerAndroidPlugin =
+      FlutterFullScreenScannerAndroid();
 
   @override
   void initState() {
@@ -32,7 +33,8 @@ class _MyAppState extends State<MyApp> {
     // We also handle the message potentially returning null.
     try {
       platformVersion =
-          await _flutterFullScreenScannerAndroidPlugin.getPlatformVersion() ?? 'Unknown platform version';
+          await _flutterFullScreenScannerAndroidPlugin.getPlatformVersion() ??
+          'Unknown platform version';
     } on PlatformException {
       platformVersion = 'Failed to get platform version.';
     }
