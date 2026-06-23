@@ -1,0 +1,53 @@
+name: Publish to pub.dev
+
+on:
+  push:
+    tags:
+      - 'v[0-9]+.[0-9]+.[0-9]+*' # Triggers on tags like v1.0.0
+
+jobs:
+  publish:
+    name: Publish to pub.dev
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write # Required for OIDC authentication with pub.dev
+      contents: read
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v3
+
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: 'stable'
+          flutter-version: '3.44.2'
+          cache: true
+
+      - name: Setup Dart
+        uses: dart-lang/setup-dart@v1
+
+      - name: Install Melos
+        run: dart pub global activate melos
+
+      - name: Bootstrap Workspace
+        run: dart run melos bootstrap
+
+      # Publish the platform interface first
+      - name: Publish Platform Interface
+        run: dart pub publish --force
+        working-directory: flutter_full_screen_scanner_platform_interface
+
+      # Publish native implementations
+      - name: Publish Android
+        run: dart pub publish --force
+        working-directory: flutter_full_screen_scanner_android
+
+      - name: Publish iOS
+        run: dart pub publish --force
+        working-directory: flutter_full_screen_scanner_ios
+
+      # Publish main package last
+      - name: Publish Main Package
+        run: dart pub publish --force
+        working-directory: flutter_full_screen_scanner
