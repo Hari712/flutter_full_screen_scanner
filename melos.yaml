@@ -2,6 +2,7 @@ name: full_screen_scanner
 
 packages:
   - flutter_full_screen_scanner
+  - flutter_full_screen_scanner/example
   - flutter_full_screen_scanner_android
   - flutter_full_screen_scanner_ios
   - flutter_full_screen_scanner_platform_interface
