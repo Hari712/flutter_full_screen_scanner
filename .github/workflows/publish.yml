@@ -33,6 +33,28 @@ jobs:
       - name: Bootstrap Workspace
         run: dart run melos bootstrap
 
+      - name: Analyze packages
+        run: melos run analyze
+
+      - name: Run tests
+        run: melos run test
+
+      - name: Dry run Platform Interface
+        run: dart pub publish --dry-run
+        working-directory: flutter_full_screen_scanner_platform_interface
+
+      - name: Dry run Android
+        run: dart pub publish --dry-run
+        working-directory: flutter_full_screen_scanner_android
+
+      - name: Dry run iOS
+        run: dart pub publish --dry-run
+        working-directory: flutter_full_screen_scanner_ios
+
+      - name: Dry run Main Package
+        run: dart pub publish --dry-run
+        working-directory: flutter_full_screen_scanner
+
       # Publish the platform interface first
       - name: Publish Platform Interface
         run: dart pub publish --force
