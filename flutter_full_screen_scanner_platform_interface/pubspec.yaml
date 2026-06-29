@@ -1,11 +1,11 @@
 name: flutter_full_screen_scanner_platform_interface
 description: Platform interface for the flutter_full_screen_scanner plugin.
-version: 1.0.2
+version: 1.0.3
 homepage: https://github.com/Hari712/flutter_full_screen_scanner
 repository: https://github.com/Hari712/flutter_full_screen_scanner
 issue_tracker: https://github.com/Hari712/flutter_full_screen_scanner/issues
 environment:
-  sdk: ^3.12.2
+  sdk: ">=3.0.0 <4.0.0"
   flutter: ">=1.17.0"
 
 dependencies:
@@ -17,8 +17,8 @@ dependencies:
 dev_dependencies:
   flutter_test:
     sdk: flutter
-  flutter_lints: ^6.0.0
-  pigeon: ^27.1.0
+  flutter_lints: ^5.0.0
+  pigeon: ^24.0.0
 
 # For information on the generic Dart part of this file, see the
 # following page: https://dart.dev/tools/pub/pubspec

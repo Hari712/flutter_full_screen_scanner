@@ -29,47 +29,77 @@ class BarcodeAnalyzer(
     override fun analyze(imageProxy: ImageProxy) {
         val mediaImage = imageProxy.image
         if (mediaImage != null) {
+            val rotation = imageProxy.imageInfo.rotationDegrees.toFloat()
             val image = InputImage.fromMediaImage(mediaImage, imageProxy.imageInfo.rotationDegrees)
+            
             scanner.process(image)
                 .addOnSuccessListener { barcodes ->
                     if (barcodes.isNotEmpty()) {
                         val currentTime = System.currentTimeMillis()
                         val validBarcodes = mutableListOf<Map<String, Any?>>()
 
+                        var rawBitmap: android.graphics.Bitmap? = null
+                        var uprightBitmap: android.graphics.Bitmap? = null
+
+                        // Matrix to rotate raw sensor bitmap into upright display orientation
+                        val matrix = android.graphics.Matrix()
+                        matrix.postRotate(rotation)
+                        val rectF = android.graphics.RectF(0f, 0f, imageProxy.width.toFloat(), imageProxy.height.toFloat())
+                        matrix.mapRect(rectF)
+                        matrix.postTranslate(-rectF.left, -rectF.top)
+
                         for (barcode in barcodes) {
                             val value = barcode.rawValue ?: continue
                             
-                            if (!allowDuplicate) {
-                                val lastScanTime = scannedCache[value]
-                                if (lastScanTime != null && (currentTime - lastScanTime) < duplicateDelay) {
-                                    continue // Skip duplicate
+                            val lastScanTime = scannedCache[value]
+                            val isNewScan = lastScanTime == null || (currentTime - lastScanTime) >= duplicateDelay
+
+                            if (!allowDuplicate && !isNewScan) {
+                                continue // Skip duplicate
+                            }
+                            
+                            var imageBytes: ByteArray? = null
+                            var imgWidth = rectF.width().toInt()
+                            var imgHeight = rectF.height().toInt()
+
+                            if (isNewScan) {
+                                scannedCache[value] = currentTime
+                                try {
+                                    if (rawBitmap == null) {
+                                        rawBitmap = imageProxy.toBitmap()
+                                        uprightBitmap = android.graphics.Bitmap.createBitmap(
+                                            rawBitmap, 0, 0, rawBitmap.width, rawBitmap.height, matrix, true
+                                        )
+                                    }
+                                    if (uprightBitmap != null) {
+                                        imgWidth = uprightBitmap.width
+                                        imgHeight = uprightBitmap.height
+                                        val stream = java.io.ByteArrayOutputStream()
+                                        uprightBitmap.compress(android.graphics.Bitmap.CompressFormat.JPEG, 100, stream)
+                                        imageBytes = stream.toByteArray()
+                                    }
+                                } catch (e: Exception) {
+                                    // Fallback if bitmap conversion fails
+                                }
+                            } else {
+                                if (uprightBitmap != null) {
+                                    imgWidth = uprightBitmap.width
+                                    imgHeight = uprightBitmap.height
                                 }
                             }
-                            
-                            scannedCache[value] = currentTime
 
-                            val rawBitmap = imageProxy.toBitmap()
-                            val matrix = android.graphics.Matrix()
-                            matrix.postRotate(imageProxy.imageInfo.rotationDegrees.toFloat())
-                            val bitmap = android.graphics.Bitmap.createBitmap(rawBitmap, 0, 0, rawBitmap.width, rawBitmap.height, matrix, true)
-                            
+                            // ML Kit cornerPoints match the upright photo coordinates 1:1
                             val corners = barcode.cornerPoints?.map { point ->
-                                val pts = floatArrayOf(point.x.toFloat(), point.y.toFloat())
-                                matrix.mapPoints(pts)
-                                mapOf("x" to pts[0].toDouble(), "y" to pts[1].toDouble())
+                                mapOf("x" to point.x.toDouble(), "y" to point.y.toDouble())
                             }
-
-                            val stream = java.io.ByteArrayOutputStream()
-                            bitmap.compress(android.graphics.Bitmap.CompressFormat.JPEG, 100, stream)
-                            val imageBytes = stream.toByteArray()
 
                             validBarcodes.add(
                                 mapOf(
                                     "value" to value,
                                     "type" to barcode.format.toString(),
                                     "corners" to corners,
-                                    "imageWidth" to bitmap.width,
-                                    "imageHeight" to bitmap.height,
+                                    "imageWidth" to imgWidth,
+                                    "imageHeight" to imgHeight,
                                     "imageBytes" to imageBytes,
                                     "timestamp" to currentTime
                                 )
@@ -82,7 +112,7 @@ class BarcodeAnalyzer(
                     }
                 }
                 .addOnFailureListener {
-                    // Optional: log error or send EventChannel error
+                    // Optional logging
                 }
                 .addOnCompleteListener {
                     imageProxy.close()

@@ -1,3 +1,6 @@
+## 1.0.3
+* Update dependencies to version 1.0.3 across platform implementations and refine SDK constraints.
+
 ## 1.0.2
 * Update documentation and installation references to version 1.0.2.
 

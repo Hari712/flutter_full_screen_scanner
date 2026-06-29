@@ -1,3 +1,6 @@
+## 1.0.3
+* Update SDK environment constraints and dependency versions for Flutter 3.x compatibility.
+
 ## 1.0.2
 * Update documentation references to version 1.0.2.
 
