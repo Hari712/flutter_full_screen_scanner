@@ -1,3 +1,4 @@
+import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:flutter_full_screen_scanner/flutter_full_screen_scanner.dart';
 import 'package:image_picker/image_picker.dart';
@@ -31,6 +32,8 @@ class _ScannerScreenState extends State<ScannerScreen> {
   final List<ScannerResult> _scannedHistory = [];
   final Map<String, Map<String, dynamic>> _liveBarcodes = {};
   final ImagePicker _picker = ImagePicker();
+  ScannerResult? _lastScannedResult;
+  DateTime? _lastScanTime;
 
   @override
   void dispose() {
@@ -48,6 +51,8 @@ class _ScannerScreenState extends State<ScannerScreen> {
       if (results.isNotEmpty && mounted) {
         setState(() {
           _scannedHistory.insertAll(0, results);
+          _lastScannedResult = results.first;
+          _lastScanTime = DateTime.now();
         });
 
         showDialog(
@@ -96,18 +101,43 @@ class _ScannerScreenState extends State<ScannerScreen> {
             ),
             onScan: (result) {
               final now = DateTime.now().millisecondsSinceEpoch;
+              final nowDateTime = DateTime.now();
+
               setState(() {
+                // Retain imageBytes from previous scan or history if live frame doesn't carry bytes
+                final existingBytes = result.imageBytes ??
+                    _liveBarcodes[result.value]?['result']?.imageBytes ??
+                    _scannedHistory.firstWhere((h) => h.value == result.value, orElse: () => result).imageBytes ??
+                    _lastScannedResult?.imageBytes;
+
+                final finalResult = ScannerResult(
+                  value: result.value,
+                  type: result.type,
+                  imageBytes: existingBytes,
+                  corners: result.corners,
+                  imageWidth: result.imageWidth,
+                  imageHeight: result.imageHeight,
+                  timestamp: result.timestamp,
+                );
+
                 _liveBarcodes[result.value] = {
-                  'result': result,
+                  'result': finalResult,
                   'lastSeen': now,
                 };
 
-                // Add to history only if it's new
-                final isDuplicate = _scannedHistory.any(
-                  (item) => item.value == result.value,
-                );
-                if (!isDuplicate) {
-                  _scannedHistory.insert(0, result);
+                // 2-second delay / rate limit for duplicate scans
+                if (_lastScanTime == null ||
+                    nowDateTime.difference(_lastScanTime!).inMilliseconds > 2000 ||
+                    _lastScannedResult?.value != finalResult.value) {
+                  _lastScannedResult = finalResult;
+                  _lastScanTime = nowDateTime;
+
+                  final isDuplicate = _scannedHistory.any(
+                    (item) => item.value == finalResult.value,
+                  );
+                  if (!isDuplicate) {
+                    _scannedHistory.insert(0, finalResult);
+                  }
                 }
               });
             },
@@ -150,6 +180,124 @@ class _ScannerScreenState extends State<ScannerScreen> {
               );
             },
           ),
+
+          // Conditional Live Preview Card below overlay cutout
+          if (_lastScannedResult != null)
+            Builder(
+              builder: (context) {
+                final isAlreadyInList = _scannedHistory.where((h) => h.value == _lastScannedResult!.value).length > 1 ||
+                    (_scannedHistory.any((h) => h.value == _lastScannedResult!.value) &&
+                        _scannedHistory.first.value != _lastScannedResult!.value);
+                return Positioned(
+                  bottom: 90,
+                  left: 16,
+                  right: 16,
+                  child: Container(
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      color: Colors.black87,
+                      borderRadius: BorderRadius.circular(16),
+                      border: Border.all(
+                        color: isAlreadyInList ? Colors.amberAccent : Colors.greenAccent,
+                        width: 1.5,
+                      ),
+                      boxShadow: const [
+                        BoxShadow(
+                          color: Colors.black45,
+                          blurRadius: 10,
+                          spreadRadius: 2,
+                        )
+                      ],
+                    ),
+                    child: Row(
+                      children: [
+                        if (_lastScannedResult!.imageBytes != null)
+                          ClipRRect(
+                            borderRadius: BorderRadius.circular(8),
+                            child: SizedBox(
+                              width: 48,
+                              height: 48,
+                              child: Image.memory(
+                                _lastScannedResult!.imageBytes!,
+                                fit: BoxFit.cover,
+                                filterQuality: FilterQuality.high,
+                                isAntiAlias: true,
+                              ),
+                            ),
+                          )
+                        else
+                          Container(
+                            width: 48,
+                            height: 48,
+                            decoration: BoxDecoration(
+                              color: Colors.grey[800],
+                              borderRadius: BorderRadius.circular(8),
+                            ),
+                            child: Icon(Icons.qr_code,
+                                color: isAlreadyInList ? Colors.amberAccent : Colors.greenAccent),
+                          ),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Row(
+                                children: [
+                                  Container(
+                                    padding: const EdgeInsets.symmetric(
+                                        horizontal: 6, vertical: 2),
+                                    decoration: BoxDecoration(
+                                      color: isAlreadyInList
+                                          ? Colors.amber.withOpacity(0.2)
+                                          : Colors.greenAccent.withOpacity(0.2),
+                                      borderRadius: BorderRadius.circular(4),
+                                    ),
+                                    child: Text(
+                                      isAlreadyInList ? 'ALREADY IN LIST' : '✓ SCANNED',
+                                      style: TextStyle(
+                                        color: isAlreadyInList ? Colors.amberAccent : Colors.greenAccent,
+                                        fontSize: 10,
+                                        fontWeight: FontWeight.bold,
+                                      ),
+                                    ),
+                                  ),
+                                  const SizedBox(width: 6),
+                                  Text(
+                                    _lastScannedResult!.type,
+                                    style: TextStyle(
+                                        color: Colors.grey[400], fontSize: 11),
+                                  ),
+                                ],
+                              ),
+                          const SizedBox(height: 4),
+                          Text(
+                            _lastScannedResult!.value,
+                            style: const TextStyle(
+                              color: Colors.white,
+                              fontSize: 15,
+                              fontWeight: FontWeight.bold,
+                            ),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ],
+                      ),
+                    ),
+                    IconButton(
+                      icon: const Icon(Icons.close, color: Colors.grey, size: 20),
+                      onPressed: () {
+                        setState(() {
+                          _lastScannedResult = null;
+                        });
+                      },
+                    ),
+                  ],
+                ),
+              ),
+            );
+          },
+        ),
 
           // Top AppBar Controls
           Positioned(
@@ -253,22 +401,19 @@ class _ScannerScreenState extends State<ScannerScreen> {
                         child: item.imageBytes != null
                             ? ClipRRect(
                                 borderRadius: BorderRadius.circular(8),
-                                child: AspectRatio(
-                                  aspectRatio:
-                                      (item.imageWidth ?? 1) /
-                                      (item.imageHeight ?? 1),
-                                  child: CustomPaint(
-                                    foregroundPainter: BarcodeLinePainter(
-                                      corners: item.corners,
-                                      imageWidth:
-                                          item.imageWidth?.toDouble() ?? 1080,
-                                      imageHeight:
-                                          item.imageHeight?.toDouble() ?? 1920,
-                                    ),
-                                    child: Image.memory(
-                                      item.imageBytes!,
-                                      fit: BoxFit.contain,
-                                    ),
+                                child: CustomPaint(
+                                  foregroundPainter: BarcodeLinePainter(
+                                    corners: item.corners,
+                                    imageWidth:
+                                        item.imageWidth?.toDouble() ?? 1080,
+                                    imageHeight:
+                                        item.imageHeight?.toDouble() ?? 1920,
+                                  ),
+                                  child: Image.memory(
+                                    item.imageBytes!,
+                                    fit: BoxFit.contain,
+                                    filterQuality: FilterQuality.high,
+                                    isAntiAlias: true,
                                   ),
                                 ),
                               )
@@ -323,6 +468,8 @@ class _ScannerScreenState extends State<ScannerScreen> {
                                           child: Image.memory(
                                             item.imageBytes!,
                                             fit: BoxFit.contain,
+                                            filterQuality: FilterQuality.high,
+                                            isAntiAlias: true,
                                           ),
                                         ),
                                       ),
@@ -394,12 +541,11 @@ class LiveBarcodeOverlayPainter extends CustomPainter {
 
       if (inHistory) {
         final textSpan = TextSpan(
-          text: '${barcode.value}\n(already scanned)',
+          text: '✓ Scanned: ${barcode.value}',
           style: const TextStyle(
-            color: Colors.redAccent,
-            fontSize: 16,
+            color: Colors.white,
+            fontSize: 13,
             fontWeight: FontWeight.bold,
-            backgroundColor: Colors.black54,
           ),
         );
 
@@ -410,6 +556,17 @@ class LiveBarcodeOverlayPainter extends CustomPainter {
         );
 
         textPainter.layout();
+        final bgRect = RRect.fromRectAndRadius(
+          Rect.fromCenter(
+            center: Offset(centerX, centerY),
+            width: textPainter.width + 16,
+            height: textPainter.height + 10,
+          ),
+          const Radius.circular(8),
+        );
+        final bgPaint = Paint()..color = const Color(0xE62E7D32); // Vibrant dark green with opacity
+        canvas.drawRRect(bgRect, bgPaint);
+
         textPainter.paint(
           canvas,
           Offset(
@@ -444,39 +601,101 @@ class BarcodeLinePainter extends CustomPainter {
 
     final paint = Paint()
       ..color = Colors.greenAccent
-      ..strokeWidth = 3.0
+      ..strokeWidth = 1.5
+      ..isAntiAlias = true
+      ..strokeCap = StrokeCap.round
       ..style = PaintingStyle.stroke;
 
-    // Scale factors to map native image coordinates to the Flutter widget size
-    final scaleX = size.width / imageWidth;
-    final scaleY = size.height / imageHeight;
+    debugPrint('=== BARCODE PAINTER DEBUG ===');
+    debugPrint('image: $imageWidth x $imageHeight, widget: ${size.width} x ${size.height}');
+    debugPrint('corners: ${corners?.map((e) => '(${e.x}, ${e.y})').toList()}');
 
-    // We assume corners are ordered: top-left, top-right, bottom-right, bottom-left
-    // (This is standard for both ML Kit and Vision bounding boxes)
-    final p0 = Offset(corners![0].x * scaleX, corners![0].y * scaleY);
-    final p1 = Offset(corners![1].x * scaleX, corners![1].y * scaleY);
-    final p2 = Offset(corners![2].x * scaleX, corners![2].y * scaleY);
-    final p3 = Offset(corners![3].x * scaleX, corners![3].y * scaleY);
+    // Calculate exact BoxFit.contain scaling and translation offsets (dx, dy)
+    final scale = math.min(
+      size.width / imageWidth,
+      size.height / imageHeight,
+    );
+    final dx = (size.width - imageWidth * scale) / 2;
+    final dy = (size.height - imageHeight * scale) / 2;
 
-    // Calculate edge lengths to determine orientation (vertical vs horizontal vs diagonal)
-    // corners are guaranteed to be in clockwise order starting from top-left (relative to the barcode).
-    final dist01 = (p0 - p1).distance;
-    final dist12 = (p1 - p2).distance;
+    final rawPoints = corners!
+        .map((c) => Offset(c.x * scale + dx, c.y * scale + dy))
+        .toList();
 
-    Offset start, end;
-    if (dist01 > dist12) {
-      // 0-1 and 2-3 are the long edges. 1-2 and 3-0 are the short edges.
-      // Connect midpoints of the short edges to draw the line parallel to the long edges.
-      start = Offset((p3.dx + p0.dx) / 2, (p3.dy + p0.dy) / 2);
-      end = Offset((p1.dx + p2.dx) / 2, (p1.dy + p2.dy) / 2);
-    } else {
-      // 1-2 and 3-0 are the long edges. 0-1 and 2-3 are the short edges.
-      // Connect midpoints of the short edges.
-      start = Offset((p0.dx + p1.dx) / 2, (p0.dy + p1.dy) / 2);
-      end = Offset((p2.dx + p3.dx) / 2, (p2.dy + p3.dy) / 2);
+    final linePoints = _calculateCenterLine(rawPoints);
+    if (linePoints.length == 2) {
+      canvas.drawLine(linePoints[0], linePoints[1], paint);
+    }
+  }
+
+  List<Offset> _calculateCenterLine(List<Offset> corners) {
+    if (corners.isEmpty) {
+      return [Offset.zero, Offset.zero];
+    }
+    if (corners.length < 4) {
+      double minX = corners.first.dx, maxX = corners.first.dx;
+      double minY = corners.first.dy, maxY = corners.first.dy;
+      for (final p in corners) {
+        if (p.dx < minX) minX = p.dx;
+        if (p.dx > maxX) maxX = p.dx;
+        if (p.dy < minY) minY = p.dy;
+        if (p.dy > maxY) maxY = p.dy;
+      }
+      final w = maxX - minX;
+      final h = maxY - minY;
+      final cx = (minX + maxX) / 2.0;
+      final cy = (minY + maxY) / 2.0;
+      if (w >= h) {
+        return [Offset(minX, cy), Offset(maxX, cy)];
+      } else {
+        return [Offset(cx, minY), Offset(cx, maxY)];
+      }
     }
 
-    canvas.drawLine(start, end, paint);
+    // Calculate centroid
+    double cx = 0;
+    double cy = 0;
+    for (final p in corners) {
+      cx += p.dx;
+      cy += p.dy;
+    }
+    cx /= 4.0;
+    cy /= 4.0;
+
+    // Sort corners clockwise around centroid
+    final sorted = List<Offset>.from(corners);
+    sorted.sort((a, b) {
+      final angleA = math.atan2(a.dy - cy, a.dx - cx);
+      final angleB = math.atan2(b.dy - cy, b.dx - cx);
+      return angleA.compareTo(angleB);
+    });
+
+    final q0 = sorted[0];
+    final q1 = sorted[1];
+    final q2 = sorted[2];
+    final q3 = sorted[3];
+
+    // Compute side lengths
+    final d0 = (q0 - q1).distance;
+    final d1 = (q1 - q2).distance;
+    final d2 = (q2 - q3).distance;
+    final d3 = (q3 - q0).distance;
+
+    // Compare opposite pairs of sides to find short vs long
+    final sum02 = d0 + d2;
+    final sum13 = d1 + d3;
+
+    if (sum02 > sum13) {
+      // q0-q1 and q2-q3 are long edges, q1-q2 and q3-q0 are short edges.
+      final mid12 = Offset((q1.dx + q2.dx) / 2.0, (q1.dy + q2.dy) / 2.0);
+      final mid30 = Offset((q3.dx + q0.dx) / 2.0, (q3.dy + q0.dy) / 2.0);
+      return [mid12, mid30];
+    } else {
+      // q1-q2 and q3-q0 are long edges, q0-q1 and q2-q3 are short edges.
+      final mid01 = Offset((q0.dx + q1.dx) / 2.0, (q0.dy + q1.dy) / 2.0);
+      final mid23 = Offset((q2.dx + q3.dx) / 2.0, (q2.dy + q3.dy) / 2.0);
+      return [mid01, mid23];
+    }
   }
 
   @override
