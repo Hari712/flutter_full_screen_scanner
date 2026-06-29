@@ -69,8 +69,7 @@ class ScannerController extends ChangeNotifier {
                 final result = ScannerResult(
                   value: item['value']?.toString() ?? '',
                   type: item['type']?.toString() ?? '',
-                  timestamp:
-                      item['timestamp'] as int? ??
+                  timestamp: item['timestamp'] as int? ??
                       DateTime.now().millisecondsSinceEpoch,
                   imageWidth: item['imageWidth'] as int?,
                   imageHeight: item['imageHeight'] as int?,

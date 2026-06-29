@@ -39,8 +39,7 @@ class ImageProcessor {
 
       // Configure the bounding box stroke
       final paint = ui.Paint()
-        ..color =
-            const ui.Color(0xFF00FF00) // Bright Green
+        ..color = const ui.Color(0xFF00FF00) // Bright Green
         ..style = ui.PaintingStyle.stroke
         ..strokeWidth = 8.0
         ..strokeJoin = ui.StrokeJoin.round;

@@ -34,7 +34,7 @@ class _MyAppState extends State<MyApp> {
     try {
       platformVersion =
           await _flutterFullScreenScannerAndroidPlugin.getPlatformVersion() ??
-          'Unknown platform version';
+              'Unknown platform version';
     } on PlatformException {
       platformVersion = 'Failed to get platform version.';
     }

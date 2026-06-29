@@ -258,8 +258,8 @@ class ScannerOptionsData {
       allowDuplicate: result[9] as bool?,
       duplicateDelay: result[10] as int?,
       scanInterval: result[11] as int?,
-      supportedFormats: (result[12] as List<Object?>?)
-          ?.cast<BarcodeFormatData?>(),
+      supportedFormats:
+          (result[12] as List<Object?>?)?.cast<BarcodeFormatData?>(),
       scanWindow: result[13] as ScanWindowData?,
       autoZoom: result[14] as bool?,
       imageQuality: result[15] as double?,
@@ -489,10 +489,9 @@ class ScannerHostApi {
   ScannerHostApi({
     BinaryMessenger? binaryMessenger,
     String messageChannelSuffix = '',
-  }) : pigeonVar_binaryMessenger = binaryMessenger,
-       pigeonVar_messageChannelSuffix = messageChannelSuffix.isNotEmpty
-           ? '.$messageChannelSuffix'
-           : '';
+  })  : pigeonVar_binaryMessenger = binaryMessenger,
+        pigeonVar_messageChannelSuffix =
+            messageChannelSuffix.isNotEmpty ? '.$messageChannelSuffix' : '';
   final BinaryMessenger? pigeonVar_binaryMessenger;
 
   static const MessageCodec<Object?> pigeonChannelCodec = _PigeonCodec();

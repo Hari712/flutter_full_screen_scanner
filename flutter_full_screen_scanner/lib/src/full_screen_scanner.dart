@@ -19,7 +19,7 @@ class FullScreenScanner extends StatefulWidget {
 
   /// Custom builder for overlaying UI on top of the camera feed.
   final Widget Function(BuildContext context, ScannerState state)?
-  overlayBuilder;
+      overlayBuilder;
 
   const FullScreenScanner({
     super.key,
@@ -74,8 +74,7 @@ class _FullScreenScannerState extends State<FullScreenScanner> {
       setState(() {
         _currentState = _currentState.copyWith(
           barcodeDetected: true,
-          capturing:
-              widget.options.enableImageCapture &&
+          capturing: widget.options.enableImageCapture &&
               widget.options.enableImageAnnotation,
           currentDetectedBarcodes: [result],
         );

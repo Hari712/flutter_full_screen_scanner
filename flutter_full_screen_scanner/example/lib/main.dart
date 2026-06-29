@@ -107,7 +107,10 @@ class _ScannerScreenState extends State<ScannerScreen> {
                 // Retain imageBytes from previous scan or history if live frame doesn't carry bytes
                 final existingBytes = result.imageBytes ??
                     _liveBarcodes[result.value]?['result']?.imageBytes ??
-                    _scannedHistory.firstWhere((h) => h.value == result.value, orElse: () => result).imageBytes ??
+                    _scannedHistory
+                        .firstWhere((h) => h.value == result.value,
+                            orElse: () => result)
+                        .imageBytes ??
                     _lastScannedResult?.imageBytes;
 
                 final finalResult = ScannerResult(
@@ -127,7 +130,8 @@ class _ScannerScreenState extends State<ScannerScreen> {
 
                 // 2-second delay / rate limit for duplicate scans
                 if (_lastScanTime == null ||
-                    nowDateTime.difference(_lastScanTime!).inMilliseconds > 2000 ||
+                    nowDateTime.difference(_lastScanTime!).inMilliseconds >
+                        2000 ||
                     _lastScannedResult?.value != finalResult.value) {
                   _lastScannedResult = finalResult;
                   _lastScanTime = nowDateTime;
@@ -185,9 +189,14 @@ class _ScannerScreenState extends State<ScannerScreen> {
           if (_lastScannedResult != null)
             Builder(
               builder: (context) {
-                final isAlreadyInList = _scannedHistory.where((h) => h.value == _lastScannedResult!.value).length > 1 ||
-                    (_scannedHistory.any((h) => h.value == _lastScannedResult!.value) &&
-                        _scannedHistory.first.value != _lastScannedResult!.value);
+                final isAlreadyInList = _scannedHistory
+                            .where((h) => h.value == _lastScannedResult!.value)
+                            .length >
+                        1 ||
+                    (_scannedHistory
+                            .any((h) => h.value == _lastScannedResult!.value) &&
+                        _scannedHistory.first.value !=
+                            _lastScannedResult!.value);
                 return Positioned(
                   bottom: 90,
                   left: 16,
@@ -198,7 +207,9 @@ class _ScannerScreenState extends State<ScannerScreen> {
                       color: Colors.black87,
                       borderRadius: BorderRadius.circular(16),
                       border: Border.all(
-                        color: isAlreadyInList ? Colors.amberAccent : Colors.greenAccent,
+                        color: isAlreadyInList
+                            ? Colors.amberAccent
+                            : Colors.greenAccent,
                         width: 1.5,
                       ),
                       boxShadow: const [
@@ -234,7 +245,9 @@ class _ScannerScreenState extends State<ScannerScreen> {
                               borderRadius: BorderRadius.circular(8),
                             ),
                             child: Icon(Icons.qr_code,
-                                color: isAlreadyInList ? Colors.amberAccent : Colors.greenAccent),
+                                color: isAlreadyInList
+                                    ? Colors.amberAccent
+                                    : Colors.greenAccent),
                           ),
                         const SizedBox(width: 12),
                         Expanded(
@@ -249,14 +262,19 @@ class _ScannerScreenState extends State<ScannerScreen> {
                                         horizontal: 6, vertical: 2),
                                     decoration: BoxDecoration(
                                       color: isAlreadyInList
-                                          ? Colors.amber.withOpacity(0.2)
-                                          : Colors.greenAccent.withOpacity(0.2),
+                                          ? Colors.amber.withValues(alpha: 0.2)
+                                          : Colors.greenAccent
+                                              .withValues(alpha: 0.2),
                                       borderRadius: BorderRadius.circular(4),
                                     ),
                                     child: Text(
-                                      isAlreadyInList ? 'ALREADY IN LIST' : '✓ SCANNED',
+                                      isAlreadyInList
+                                          ? 'ALREADY IN LIST'
+                                          : '✓ SCANNED',
                                       style: TextStyle(
-                                        color: isAlreadyInList ? Colors.amberAccent : Colors.greenAccent,
+                                        color: isAlreadyInList
+                                            ? Colors.amberAccent
+                                            : Colors.greenAccent,
                                         fontSize: 10,
                                         fontWeight: FontWeight.bold,
                                       ),
@@ -270,34 +288,35 @@ class _ScannerScreenState extends State<ScannerScreen> {
                                   ),
                                 ],
                               ),
-                          const SizedBox(height: 4),
-                          Text(
-                            _lastScannedResult!.value,
-                            style: const TextStyle(
-                              color: Colors.white,
-                              fontSize: 15,
-                              fontWeight: FontWeight.bold,
-                            ),
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
+                              const SizedBox(height: 4),
+                              Text(
+                                _lastScannedResult!.value,
+                                style: const TextStyle(
+                                  color: Colors.white,
+                                  fontSize: 15,
+                                  fontWeight: FontWeight.bold,
+                                ),
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                            ],
                           ),
-                        ],
-                      ),
+                        ),
+                        IconButton(
+                          icon: const Icon(Icons.close,
+                              color: Colors.grey, size: 20),
+                          onPressed: () {
+                            setState(() {
+                              _lastScannedResult = null;
+                            });
+                          },
+                        ),
+                      ],
                     ),
-                    IconButton(
-                      icon: const Icon(Icons.close, color: Colors.grey, size: 20),
-                      onPressed: () {
-                        setState(() {
-                          _lastScannedResult = null;
-                        });
-                      },
-                    ),
-                  ],
-                ),
-              ),
-            );
-          },
-        ),
+                  ),
+                );
+              },
+            ),
 
           // Top AppBar Controls
           Positioned(
@@ -452,18 +471,17 @@ class _ScannerScreenState extends State<ScannerScreen> {
                                     ClipRRect(
                                       borderRadius: BorderRadius.circular(12),
                                       child: AspectRatio(
-                                        aspectRatio:
-                                            (item.imageWidth ?? 1) /
+                                        aspectRatio: (item.imageWidth ?? 1) /
                                             (item.imageHeight ?? 1),
                                         child: CustomPaint(
                                           foregroundPainter: BarcodeLinePainter(
                                             corners: item.corners,
                                             imageWidth:
                                                 item.imageWidth?.toDouble() ??
-                                                1080,
+                                                    1080,
                                             imageHeight:
                                                 item.imageHeight?.toDouble() ??
-                                                1920,
+                                                    1920,
                                           ),
                                           child: Image.memory(
                                             item.imageBytes!,
@@ -564,7 +582,8 @@ class LiveBarcodeOverlayPainter extends CustomPainter {
           ),
           const Radius.circular(8),
         );
-        final bgPaint = Paint()..color = const Color(0xE62E7D32); // Vibrant dark green with opacity
+        final bgPaint = Paint()
+          ..color = const Color(0xE62E7D32); // Vibrant dark green with opacity
         canvas.drawRRect(bgRect, bgPaint);
 
         textPainter.paint(
@@ -607,7 +626,8 @@ class BarcodeLinePainter extends CustomPainter {
       ..style = PaintingStyle.stroke;
 
     debugPrint('=== BARCODE PAINTER DEBUG ===');
-    debugPrint('image: $imageWidth x $imageHeight, widget: ${size.width} x ${size.height}');
+    debugPrint(
+        'image: $imageWidth x $imageHeight, widget: ${size.width} x ${size.height}');
     debugPrint('corners: ${corners?.map((e) => '(${e.x}, ${e.y})').toList()}');
 
     // Calculate exact BoxFit.contain scaling and translation offsets (dx, dy)
