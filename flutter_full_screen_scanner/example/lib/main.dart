@@ -625,11 +625,6 @@ class BarcodeLinePainter extends CustomPainter {
       ..strokeCap = StrokeCap.round
       ..style = PaintingStyle.stroke;
 
-    debugPrint('=== BARCODE PAINTER DEBUG ===');
-    debugPrint(
-        'image: $imageWidth x $imageHeight, widget: ${size.width} x ${size.height}');
-    debugPrint('corners: ${corners?.map((e) => '(${e.x}, ${e.y})').toList()}');
-
     // Calculate exact BoxFit.contain scaling and translation offsets (dx, dy)
     final scale = math.min(
       size.width / imageWidth,

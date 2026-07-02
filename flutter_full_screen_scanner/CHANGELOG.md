@@ -1,3 +1,6 @@
+## 1.0.4
+* Removed debugging logs.
+
 ## 1.0.3
 * Update dependencies to version 1.0.3 across platform implementations and refine SDK constraints.
 

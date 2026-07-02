@@ -1,6 +1,6 @@
 name: flutter_full_screen_scanner
 description: A production-ready, federated Flutter plugin for high-performance, full-screen continuous barcode and QR code scanning.
-version: 1.0.3
+version: 1.0.4
 homepage: https://github.com/Hari712/flutter_full_screen_scanner
 repository: https://github.com/Hari712/flutter_full_screen_scanner
 issue_tracker: https://github.com/Hari712/flutter_full_screen_scanner/issues
