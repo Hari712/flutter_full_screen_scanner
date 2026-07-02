@@ -1,3 +1,6 @@
+## 1.0.4
+* Bumped version to match main package.
+
 ## 1.0.3
 * Update SDK environment constraints and dependency versions for Flutter 3.x compatibility.
 

@@ -1,3 +1,6 @@
+## 1.0.4
+* Bumped version to match main package.
+
 ## 1.0.3
 * Improve CameraX analyzer stability, handle life-cycle events and update SDK environment constraints.
 
