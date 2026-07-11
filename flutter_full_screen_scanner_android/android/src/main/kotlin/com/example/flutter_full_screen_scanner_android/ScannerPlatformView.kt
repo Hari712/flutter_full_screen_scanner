@@ -26,12 +26,18 @@ class ScannerPlatformView(
     private var lensFacing = CameraSelector.LENS_FACING_BACK
     private var allowDuplicate: Boolean
     private var duplicateDelay: Long
+    private var enableImageCapture: Boolean = true
+    private var scanWindowWidthFactor: Double? = null
+    private var scanWindowHeightFactor: Double? = null
 
     init {
         val params = creationParams as? Map<*, *>
         allowDuplicate = params?.get("allowDuplicate") as? Boolean ?: false
         val delayRaw = params?.get("duplicateDelay")
         duplicateDelay = (delayRaw as? Number)?.toLong() ?: 1500L
+        enableImageCapture = params?.get("enableImageCapture") as? Boolean ?: true
+        scanWindowWidthFactor = params?.get("scanWindowWidthFactor") as? Double
+        scanWindowHeightFactor = params?.get("scanWindowHeightFactor") as? Double
 
         cameraExecutor = Executors.newSingleThreadExecutor()
         startCamera()
@@ -81,6 +87,10 @@ class ScannerPlatformView(
                 .build()
                 .also {
                     it.setAnalyzer(cameraExecutor, BarcodeAnalyzer(
+                        previewView = previewView,
+                        scanWindowWidthFactor = scanWindowWidthFactor,
+                        scanWindowHeightFactor = scanWindowHeightFactor,
+                        enableImageCapture = enableImageCapture,
                         allowDuplicate = allowDuplicate,
                         duplicateDelay = duplicateDelay,
                         onBarcodeDetected = { results ->

@@ -33,6 +33,11 @@ class _ScannerViewState extends State<ScannerView> {
     final Map<String, dynamic> creationParams = {
       'allowDuplicate': widget.options.allowDuplicate,
       'duplicateDelay': widget.options.duplicateDelay,
+      'enableImageCapture': widget.options.enableImageCapture,
+      if (widget.options.scanWindow != null) ...{
+        'scanWindowWidthFactor': widget.options.scanWindow!.widthFactor,
+        'scanWindowHeightFactor': widget.options.scanWindow!.heightFactor,
+      },
     };
 
     if (defaultTargetPlatform == TargetPlatform.android) {

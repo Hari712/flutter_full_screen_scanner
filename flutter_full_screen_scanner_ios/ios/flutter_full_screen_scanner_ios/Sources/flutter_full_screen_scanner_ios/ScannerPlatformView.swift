@@ -59,6 +59,10 @@ class ScannerPlatformView: NSObject, FlutterPlatformView, AVCaptureMetadataOutpu
     private var scannedCache: [String: TimeInterval] = [:]
     
     private var pendingBarcodeData: [String: Any]? = nil
+    private var enableImageCapture: Bool = true
+    private var scanWindowWidthFactor: Double? = nil
+    private var scanWindowHeightFactor: Double? = nil
+    private let pendingLock = NSLock()
 
     init(
         frame: CGRect,
@@ -75,6 +79,15 @@ class ScannerPlatformView: NSObject, FlutterPlatformView, AVCaptureMetadataOutpu
             }
             if let delay = params["duplicateDelay"] as? Int {
                 self.duplicateDelay = delay
+            }
+            if let enableCapture = params["enableImageCapture"] as? Bool {
+                self.enableImageCapture = enableCapture
+            }
+            if let swWidth = params["scanWindowWidthFactor"] as? Double {
+                self.scanWindowWidthFactor = swWidth
+            }
+            if let swHeight = params["scanWindowHeightFactor"] as? Double {
+                self.scanWindowHeightFactor = swHeight
             }
         }
         
@@ -162,7 +175,6 @@ class ScannerPlatformView: NSObject, FlutterPlatformView, AVCaptureMetadataOutpu
                     return
                 }
             }
-            scannedCache[stringValue] = currentTime
             
             // Determine current orientation
             let currentOrientation = _view.videoPreviewLayer.connection?.videoOrientation ?? .portrait
@@ -186,6 +198,36 @@ class ScannerPlatformView: NSObject, FlutterPlatformView, AVCaptureMetadataOutpu
                 }
             }
             
+            if corners.count < 4 { return }
+
+            // 1. Check if barcode is too close to screen edges (2% margin) to prevent partial cuts
+            let edgeMargin = 0.02
+            let tooCloseToEdge = corners.contains { pt in
+                guard let x = pt["x"], let y = pt["y"] else { return true }
+                return x < edgeMargin || x > 1.0 - edgeMargin || y < edgeMargin || y > 1.0 - edgeMargin
+            }
+            if tooCloseToEdge {
+                return // Skip cut off barcode
+            }
+
+            // 2. Check scan window if set
+            if let swWidth = self.scanWindowWidthFactor, let swHeight = self.scanWindowHeightFactor {
+                let xMin = 0.5 - swWidth / 2.0
+                let xMax = 0.5 + swWidth / 2.0
+                let yMin = 0.5 - swHeight / 2.0
+                let yMax = 0.5 + swHeight / 2.0
+
+                let allInside = corners.allSatisfy { pt in
+                    guard let x = pt["x"], let y = pt["y"] else { return false }
+                    return x >= xMin && x <= xMax && y >= yMin && y <= yMax
+                }
+                if !allInside {
+                    return // Skip since it's not fully inside the scan window
+                }
+            }
+            
+            scannedCache[stringValue] = currentTime
+            
             var result: [String: Any] = [
                 "value": stringValue,
                 "type": readableObject.type.rawValue,
@@ -193,18 +235,37 @@ class ScannerPlatformView: NSObject, FlutterPlatformView, AVCaptureMetadataOutpu
                 "corners": corners
             ]
             
+            if !self.enableImageCapture {
+                // Dispatch immediately and skip capturing thread entirely
+                DispatchQueue.main.async {
+                    self.plugin.eventSink?([
+                        "type": "scanned",
+                        "data": [result]
+                    ])
+                }
+                return
+            }
+            
             // Pass the current orientation to the capture thread
             result["orientation"] = _view.videoPreviewLayer.connection?.videoOrientation.rawValue ?? AVCaptureVideoOrientation.portrait.rawValue
             
             // Request the next frame to grab the image bytes
+            self.pendingLock.lock()
             self.pendingBarcodeData = result
+            self.pendingLock.unlock()
         }
     }
 
     func captureOutput(_ output: AVCaptureOutput, didOutput sampleBuffer: CMSampleBuffer, from connection: AVCaptureConnection) {
-        if let pending = self.pendingBarcodeData {
+        var pending: [String: Any]? = nil
+        self.pendingLock.lock()
+        if let p = self.pendingBarcodeData {
+            pending = p
             self.pendingBarcodeData = nil
-            
+        }
+        self.pendingLock.unlock()
+        
+        if let pending = pending {
             var result = pending
             
             if let pixelBuffer = CMSampleBufferGetImageBuffer(sampleBuffer) {

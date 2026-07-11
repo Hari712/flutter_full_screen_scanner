@@ -1,3 +1,10 @@
+## 1.0.5
+* Restrict barcode scanning strictly to the active `scanWindow` area (if configured).
+* Prevent partial/half-visible barcode scans to avoid incorrect decoded text.
+* Fix random camera analyzer freezes and thread safety issues on native platforms.
+* Optimize scanning performance by skipping image capture and compression when `enableImageCapture` is false.
+* Update platform implementation dependency constraints to `^1.0.5`.
+
 ## 1.0.4
 * Removed debugging logs.
 

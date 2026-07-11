@@ -1,3 +1,9 @@
+## 1.0.5
+* Restrict barcode scanning strictly to the active `scanWindow` area (if configured).
+* Prevent partial/half-visible barcode scans at the screen or image boundaries.
+* Resolve random camera analyzer freezes by ensuring the `ImageProxy` is always safely closed on success, failure, and execution error paths.
+* Skip bitmap conversion and JPEG compression when `enableImageCapture` is false.
+
 ## 1.0.4
 * Bumped version to match main package.
 

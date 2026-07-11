@@ -18,7 +18,7 @@ Add the following to your `pubspec.yaml`:
 
 ```yaml
 dependencies:
-  flutter_full_screen_scanner: ^1.0.4
+  flutter_full_screen_scanner: ^1.0.5
 ```
 
 ## Android Setup
@@ -80,6 +80,14 @@ class _ScannerScreenState extends State<ScannerScreen> {
   }
 }
 ```
+
+### ScannerOptions
+
+Configure the scanner settings via the `ScannerOptions` class:
+
+* **`scanWindow`**: Restricts the active scan area (defined as a `ScanWindow` with coordinate factors from `0.0` to `1.0`). Only barcodes fully visible and positioned entirely within this cutout area are detected.
+* **`enableImageCapture`**: Set to `false` to disable retrieving barcode image bytes (`imageBytes`). Doing so disables raw image frame extraction and JPEG compression on the native thread, significantly reducing CPU usage and enabling smoother continuous scanning.
+* **`allowDuplicate` & `duplicateDelay`**: Configure duplicate detection and cooling down periods.
 
 ### Controller API
 

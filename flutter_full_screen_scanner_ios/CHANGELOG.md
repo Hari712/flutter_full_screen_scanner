@@ -1,3 +1,9 @@
+## 1.0.5
+* Restrict barcode scanning strictly to the active `scanWindow` area (if configured).
+* Prevent partial/half-visible barcode scans at the screen boundaries.
+* Add NSLock thread synchronization around pending scan data to prevent race conditions and freezes.
+* Optimize scanning speed and CPU usage by immediately dispatching results and skipping frame extraction when `enableImageCapture` is false.
+
 ## 1.0.4
 * Bumped version to match main package.
 
