@@ -4,6 +4,8 @@ import AVFoundation
 import Vision
 
 class CameraPreviewView: UIView {
+    var onLayoutChanged: (() -> Void)?
+
     override class var layerClass: AnyClass {
         return AVCaptureVideoPreviewLayer.self
     }
@@ -45,6 +47,7 @@ class CameraPreviewView: UIView {
                 }
             }
         }
+        onLayoutChanged?()
     }
 }
 
@@ -65,6 +68,10 @@ class ScannerPlatformView: NSObject, FlutterPlatformView, AVCaptureVideoDataOutp
     private var videoDevice: AVCaptureDevice?
     private var subjectAreaChangeObserver: NSObjectProtocol?
     private var imagesCurrentlyBeingProcessed = false
+    
+    // Cached orientation state
+    private var cachedCGImageOrientation: CGImagePropertyOrientation = .right
+    private let orientationLock = NSLock()
 
     init(
         frame: CGRect,
@@ -94,6 +101,13 @@ class ScannerPlatformView: NSObject, FlutterPlatformView, AVCaptureVideoDataOutp
         }
         
         super.init()
+        
+        // Cache initial orientation and register layout callback
+        updateOrientationCache()
+        self._view.onLayoutChanged = { [weak self] in
+            self?.updateOrientationCache()
+        }
+        
         setupCamera()
     }
 
@@ -192,11 +206,17 @@ class ScannerPlatformView: NSObject, FlutterPlatformView, AVCaptureVideoDataOutp
         
         let currentTime = Date().timeIntervalSince1970 * 1000
         
+        // Read cached orientation thread-safely
+        self.orientationLock.lock()
+        let cgOrientation = self.cachedCGImageOrientation
+        self.orientationLock.unlock()
+        
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
             guard let self = self else { return }
             
             // Run VNDetectBarcodesRequest for high-performance deep-learning barcode recognition
-            let requestHandler = VNImageRequestHandler(cvPixelBuffer: pixelBuffer, options: [:])
+            // Pass the image orientation to the handler so Vision internally uprights the frame
+            let requestHandler = VNImageRequestHandler(cvPixelBuffer: pixelBuffer, orientation: cgOrientation, options: [:])
             let request = VNDetectBarcodesRequest { [weak self] request, error in
                 guard let self = self else { return }
                 
@@ -213,37 +233,27 @@ class ScannerPlatformView: NSObject, FlutterPlatformView, AVCaptureVideoDataOutp
                     return
                 }
                 
+                // Determine upright dimensions directly from the raw pixel buffer
+                let pWidth = Double(CVPixelBufferGetWidth(pixelBuffer))
+                let pHeight = Double(CVPixelBufferGetHeight(pixelBuffer))
+                let isPortrait = (cgOrientation == .right || cgOrientation == .left)
+                let imgWidth = isPortrait ? pHeight : pWidth
+                let imgHeight = isPortrait ? pWidth : pHeight
+                
                 // Crop and generate JPEG bytes in the background thread (since CIContext is CPU/GPU intensive)
                 var imageBytes: FlutterStandardTypedData? = nil
-                var imgWidth = 0.0
-                var imgHeight = 0.0
                 if self.enableImageCapture {
-                    var ciOrientation: CGImagePropertyOrientation = .right
-                    DispatchQueue.main.sync {
-                        if let orientation = self._view.videoPreviewLayer.connection?.videoOrientation {
-                            switch orientation {
-                            case .portrait: ciOrientation = .right
-                            case .landscapeRight: ciOrientation = .up
-                            case .landscapeLeft: ciOrientation = .down
-                            case .portraitUpsideDown: ciOrientation = .left
-                            @unknown default: ciOrientation = .right
-                            }
-                        }
-                    }
-                    
                     let ciContext = CIContext()
-                    let ciImage = CIImage(cvPixelBuffer: pixelBuffer).oriented(ciOrientation)
+                    let ciImage = CIImage(cvPixelBuffer: pixelBuffer).oriented(cgOrientation)
                     if let cgImage = ciContext.createCGImage(ciImage, from: ciImage.extent) {
                         let uiImage = UIImage(cgImage: cgImage)
-                        imgWidth = Double(uiImage.size.width)
-                        imgHeight = Double(uiImage.size.height)
                         if let jpegData = uiImage.jpegData(compressionQuality: 0.8) {
                             imageBytes = FlutterStandardTypedData(bytes: jpegData)
                         }
                     }
                 }
                 
-                // Dispatch to main thread to perform UIKit coordinate translation safely
+                // Dispatch to main thread to perform UIKit bounds lookup and fire eventSink safely
                 DispatchQueue.main.async { [weak self] in
                     guard let self = self else { return }
                     defer {
@@ -258,18 +268,36 @@ class ScannerPlatformView: NSObject, FlutterPlatformView, AVCaptureVideoDataOutp
                     
                     var finalResults: [[String: Any]] = []
                     
+                    // Map from Vision's uncropped normalized output space to screen preview aspect-fill space
+                    let scaleX = viewWidth / imgWidth
+                    let scaleY = viewHeight / imgHeight
+                    let scale = max(scaleX, scaleY)
+                    let dx = (imgWidth * scale - viewWidth) / 2.0
+                    let dy = (imgHeight * scale - viewHeight) / 2.0
+                    
                     for observation in observations {
                         guard let stringValue = observation.payloadStringValue else { continue }
                         
-                        // Map normalized Vision coordinates (origin bottom-left) to logical screen space (origin top-left)
-                        // using built-in preview layer coordinate transformer
-                        let corners = [observation.topLeft, observation.topRight, observation.bottomRight, observation.bottomLeft].map { point -> [String: Double] in
-                            let devicePoint = CGPoint(x: point.x, y: 1.0 - point.y)
-                            let screenPoint = self._view.videoPreviewLayer.layerPointConverted(fromCaptureDevicePoint: devicePoint)
-                            return ["x": Double(screenPoint.x), "y": Double(screenPoint.y)]
+                        // Map normalized coordinates from Vision (origin bottom-left) directly to upright image space coordinates:
+                        // pt.x = normX * imgWidth
+                        // pt.y = (1.0 - normY) * imgHeight (to invert bottom-left to top-left)
+                        let rawCorners = [observation.topLeft, observation.topRight, observation.bottomRight, observation.bottomLeft]
+                        
+                        let imageCorners = rawCorners.map { point -> [String: Double] in
+                            let imgX = point.x * imgWidth
+                            let imgY = (1.0 - point.y) * imgHeight
+                            return ["x": imgX, "y": imgY]
                         }
                         
-                        if corners.count < 4 { continue }
+                        if imageCorners.count < 4 { continue }
+                        
+                        // Project to screen preview coordinates using direct aspect-fill math (same as Dart side)
+                        // for native scan window validation check
+                        let screenCorners = rawCorners.map { point -> CGPoint in
+                            let px = point.x * imgWidth * scale - dx
+                            let py = (1.0 - point.y) * imgHeight * scale - dy
+                            return CGPoint(x: px, y: py)
+                        }
                         
                         // Native Scan Window Containment Check
                         if let swWidth = self.scanWindowWidthFactor, let swHeight = self.scanWindowHeightFactor {
@@ -281,12 +309,12 @@ class ScannerPlatformView: NSObject, FlutterPlatformView, AVCaptureVideoDataOutp
                             // Calculate centroid in screen pixels
                             var sumX = 0.0
                             var sumY = 0.0
-                            for pt in corners {
-                                sumX += pt["x"]!
-                                sumY += pt["y"]!
+                            for pt in screenCorners {
+                                sumX += Double(pt.x)
+                                sumY += Double(pt.y)
                             }
-                            let centroidX = sumX / Double(corners.count)
-                            let centroidY = sumY / Double(corners.count)
+                            let centroidX = sumX / Double(screenCorners.count)
+                            let centroidY = sumY / Double(screenCorners.count)
                             
                             // Normalize centroid relative to screen layout bounds
                             let normX = centroidX / viewWidth
@@ -312,22 +340,13 @@ class ScannerPlatformView: NSObject, FlutterPlatformView, AVCaptureVideoDataOutp
                             "value": stringValue,
                             "type": barcodeType,
                             "timestamp": Int(currentTime),
-                            "corners": corners,
-                            "imageWidth": Int(viewWidth),
-                            "imageHeight": Int(viewHeight)
+                            "corners": imageCorners, // Report coordinates in uncropped upright image space
+                            "imageWidth": Int(imgWidth),
+                            "imageHeight": Int(imgHeight)
                         ]
                         
                         if let bytes = imageBytes {
                             result["imageBytes"] = bytes
-                            result["imageWidth"] = Int(imgWidth)
-                            result["imageHeight"] = Int(imgHeight)
-                            
-                            let scaledCorners = corners.map { pt -> [String: Double] in
-                                let normX = pt["x"]! / viewWidth
-                                let normY = pt["y"]! / viewHeight
-                                return ["x": normX * imgWidth, "y": normY * imgHeight]
-                            }
-                            result["corners"] = scaledCorners
                         }
                         
                         finalResults.append(result)
@@ -413,6 +432,9 @@ class ScannerPlatformView: NSObject, FlutterPlatformView, AVCaptureVideoDataOutp
             print("Failed to switch camera.")
         }
         session.commitConfiguration()
+        
+        // Cache the updated camera orientation
+        self.updateOrientationCache()
     }
 
     func focusAt(x: Double, y: Double) {
@@ -473,5 +495,27 @@ class ScannerPlatformView: NSObject, FlutterPlatformView, AVCaptureVideoDataOutp
         } catch {
             print("Failed to reset focus on subject area change.")
         }
+    }
+
+    private func updateOrientationCache() {
+        let orientation: AVCaptureVideoOrientation
+        if let previewOrientation = _view.videoPreviewLayer.connection?.videoOrientation {
+            orientation = previewOrientation
+        } else {
+            orientation = .portrait
+        }
+        
+        let cgOrientation: CGImagePropertyOrientation
+        switch orientation {
+        case .portrait: cgOrientation = .right
+        case .landscapeRight: cgOrientation = .up
+        case .landscapeLeft: cgOrientation = .down
+        case .portraitUpsideDown: cgOrientation = .left
+        @unknown default: cgOrientation = .right
+        }
+        
+        self.orientationLock.lock()
+        self.cachedCGImageOrientation = cgOrientation
+        self.orientationLock.unlock()
     }
 }
