@@ -132,7 +132,7 @@ class ScannerPlatformView: NSObject, FlutterPlatformView, AVCaptureVideoDataOutp
             if videoCaptureDevice.isFocusModeSupported(.continuousAutoFocus) {
                 videoCaptureDevice.focusMode = .continuousAutoFocus
                 if videoCaptureDevice.isAutoFocusRangeRestrictionSupported {
-                    videoCaptureDevice.autoFocusRangeRestriction = .near
+                    videoCaptureDevice.autoFocusRangeRestriction = .none
                 }
                 if videoCaptureDevice.isFocusPointOfInterestSupported {
                     videoCaptureDevice.focusPointOfInterest = CGPoint(x: 0.5, y: 0.5)
@@ -147,7 +147,7 @@ class ScannerPlatformView: NSObject, FlutterPlatformView, AVCaptureVideoDataOutp
             videoCaptureDevice.isSubjectAreaChangeMonitoringEnabled = true
             
             // Zoom in slightly so the user holds the phone at a comfortable distance (improving focus)
-            let desiredZoom: CGFloat = 1.5
+            let desiredZoom: CGFloat = 2.0
             videoCaptureDevice.videoZoomFactor = min(desiredZoom, videoCaptureDevice.activeFormat.videoMaxZoomFactor)
             
             videoCaptureDevice.unlockForConfiguration()
@@ -306,22 +306,15 @@ class ScannerPlatformView: NSObject, FlutterPlatformView, AVCaptureVideoDataOutp
                             let yMin = 0.5 - swHeight / 2.0
                             let yMax = 0.5 + swHeight / 2.0
                             
-                            // Calculate centroid in screen pixels
-                            var sumX = 0.0
-                            var sumY = 0.0
-                            for pt in screenCorners {
-                                sumX += Double(pt.x)
-                                sumY += Double(pt.y)
+                            // Ensure all corners are fully inside the scan window to prevent partial/half-visible scans
+                            let allInside = screenCorners.allSatisfy { pt in
+                                let normX = Double(pt.x) / viewWidth
+                                let normY = Double(pt.y) / viewHeight
+                                return normX >= xMin && normX <= xMax && normY >= yMin && normY <= yMax
                             }
-                            let centroidX = sumX / Double(screenCorners.count)
-                            let centroidY = sumY / Double(screenCorners.count)
                             
-                            // Normalize centroid relative to screen layout bounds
-                            let normX = centroidX / viewWidth
-                            let normY = centroidY / viewHeight
-                            
-                            if normX < xMin || normX > xMax || normY < yMin || normY > yMax {
-                                continue // Skip barcode outside orange scan window
+                            if !allInside {
+                                continue // Skip barcode that is not fully inside the scan window
                             }
                         }
                         
@@ -479,7 +472,7 @@ class ScannerPlatformView: NSObject, FlutterPlatformView, AVCaptureVideoDataOutp
             if device.isFocusModeSupported(.continuousAutoFocus) {
                 device.focusMode = .continuousAutoFocus
                 if device.isAutoFocusRangeRestrictionSupported {
-                    device.autoFocusRangeRestriction = .near
+                    device.autoFocusRangeRestriction = .none
                 }
                 if device.isFocusPointOfInterestSupported {
                     device.focusPointOfInterest = CGPoint(x: 0.5, y: 0.5)

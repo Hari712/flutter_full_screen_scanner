@@ -1,3 +1,8 @@
+## 1.0.7
+* Ensure all barcode corners are fully within the scan window (instead of just the centroid) to prevent partial/half-visible barcode scans.
+* Remove autofocus range restriction (`.none` instead of `.near`) to improve focus on barcodes at varying distances.
+* Increase default video zoom factor to `2.0` (from `1.5`) to help with camera focusing.
+
 ## 1.0.6
 * Fix nearby/adjacent barcode collision by implementing native scan window containment check.
 * Fix CALayer coordinate conversion thread safety issues by executing on main thread block.

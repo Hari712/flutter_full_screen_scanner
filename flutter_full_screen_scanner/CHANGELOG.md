@@ -1,3 +1,10 @@
+## 1.0.7
+* Android: Ensure all barcode corners are fully within the scan window (instead of just the centroid) to prevent partial/half-visible barcode scans.
+* iOS: Ensure all barcode corners are fully within the scan window to prevent partial/half-visible barcode scans.
+* iOS: Remove autofocus range restriction (`.none` instead of `.near`) to improve barcode focus at various distances.
+* iOS: Increase default zoom factor to `2.0` (from `1.5`) for better barcode focus.
+* Update platform implementation dependency constraints to `^1.0.7`.
+
 ## 1.0.6
 * Fix nearby/adjacent barcode scanning issues on iOS with native scan window filtering.
 * Fix iOS CALayer coordinate conversion thread safety issues.

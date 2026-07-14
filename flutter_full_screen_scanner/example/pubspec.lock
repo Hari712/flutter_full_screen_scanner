@@ -121,28 +121,28 @@ packages:
       path: ".."
       relative: true
     source: path
-    version: "1.0.6"
+    version: "1.0.7"
   flutter_full_screen_scanner_android:
     dependency: "direct overridden"
     description:
       path: "../../flutter_full_screen_scanner_android"
       relative: true
     source: path
-    version: "1.0.6"
+    version: "1.0.7"
   flutter_full_screen_scanner_ios:
     dependency: "direct overridden"
     description:
       path: "../../flutter_full_screen_scanner_ios"
       relative: true
     source: path
-    version: "1.0.6"
+    version: "1.0.7"
   flutter_full_screen_scanner_platform_interface:
     dependency: "direct overridden"
     description:
       path: "../../flutter_full_screen_scanner_platform_interface"
       relative: true
     source: path
-    version: "1.0.6"
+    version: "1.0.7"
   flutter_lints:
     dependency: "direct dev"
     description:

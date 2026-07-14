@@ -1,3 +1,6 @@
+## 1.0.7
+* Ensure all barcode corners are fully within the scan window (instead of just the centroid) to prevent partial/half-visible barcode scans.
+
 ## 1.0.6
 * Bumped version to match main package.
 

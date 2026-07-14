@@ -94,22 +94,16 @@ class BarcodeAnalyzer(
                                         val yMax = 0.5 + scanWindowHeightFactor / 2.0
 
                                         if (uprightCorners.isNotEmpty()) {
-                                            var sumX = 0f
-                                            var sumY = 0f
-                                            for (point in uprightCorners) {
-                                                sumX += point.x
-                                                sumY += point.y
+                                            // Ensure all corners are fully inside the scan window to prevent partial/half-visible scans
+                                            val allInside = uprightCorners.all { point ->
+                                                val px = point.x * scale - dx
+                                                val py = point.y * scale - dy
+                                                val nx = px / pvWidth
+                                                val ny = py / pvHeight
+                                                nx >= xMin && nx <= xMax && ny >= yMin && ny <= yMax
                                             }
-                                            val centroidX = sumX / uprightCorners.size
-                                            val centroidY = sumY / uprightCorners.size
-
-                                            val px = centroidX * scale - dx
-                                            val py = centroidY * scale - dy
-                                            val nx = px / pvWidth
-                                            val ny = py / pvHeight
-
-                                            if (nx < xMin || nx > xMax || ny < yMin || ny > yMax) {
-                                                continue // Skip since the center of the barcode is not inside the scan window
+                                            if (!allInside) {
+                                                continue // Skip since the barcode is not fully inside the scan window
                                             }
                                         }
                                     }
