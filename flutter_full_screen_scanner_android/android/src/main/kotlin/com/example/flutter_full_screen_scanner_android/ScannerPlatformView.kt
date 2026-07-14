@@ -122,13 +122,7 @@ class ScannerPlatformView(
                     imageAnalysis
                 )
 
-                // Enable continuous focus and exposure for maximum clarity
-                val factory = previewView.meteringPointFactory
-                val centerPoint = factory.createPoint(0.5f, 0.5f)
-                val action = FocusMeteringAction.Builder(centerPoint, FocusMeteringAction.FLAG_AF or FocusMeteringAction.FLAG_AE)
-                    .setAutoCancelDuration(3, java.util.concurrent.TimeUnit.SECONDS)
-                    .build()
-                camera?.cameraControl?.startFocusAndMetering(action)
+
 
             } catch(exc: Exception) {
                 // Log exception

@@ -1,3 +1,6 @@
+## 1.0.6
+* Bumped version to match main package.
+
 ## 1.0.5
 * Restrict barcode scanning strictly to the active `scanWindow` area (if configured).
 * Prevent partial/half-visible barcode scans at the screen or image boundaries.

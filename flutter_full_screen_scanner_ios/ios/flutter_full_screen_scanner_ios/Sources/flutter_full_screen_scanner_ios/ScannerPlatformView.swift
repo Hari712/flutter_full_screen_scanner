@@ -1,6 +1,7 @@
 import Flutter
 import UIKit
 import AVFoundation
+import Vision
 
 class CameraPreviewView: UIView {
     override class var layerClass: AnyClass {
@@ -47,22 +48,23 @@ class CameraPreviewView: UIView {
     }
 }
 
-class ScannerPlatformView: NSObject, FlutterPlatformView, AVCaptureMetadataOutputObjectsDelegate, AVCaptureVideoDataOutputSampleBufferDelegate {
+class ScannerPlatformView: NSObject, FlutterPlatformView, AVCaptureVideoDataOutputSampleBufferDelegate {
     private var _view: CameraPreviewView
     private var plugin: FlutterFullScreenScannerIosPlugin
     private var captureSession: AVCaptureSession?
-    private var latestPixelBuffer: CVPixelBuffer?
     
     // Duplicate prevention
     private var allowDuplicate: Bool = false
     private var duplicateDelay: Int = 1500
     private var scannedCache: [String: TimeInterval] = [:]
     
-    private var pendingBarcodeData: [String: Any]? = nil
     private var enableImageCapture: Bool = true
     private var scanWindowWidthFactor: Double? = nil
     private var scanWindowHeightFactor: Double? = nil
-    private let pendingLock = NSLock()
+    
+    private var videoDevice: AVCaptureDevice?
+    private var subjectAreaChangeObserver: NSObjectProtocol?
+    private var imagesCurrentlyBeingProcessed = false
 
     init(
         frame: CGRect,
@@ -103,26 +105,49 @@ class ScannerPlatformView: NSObject, FlutterPlatformView, AVCaptureMetadataOutpu
         captureSession = AVCaptureSession()
         guard let captureSession = captureSession else { return }
         
-        if captureSession.canSetSessionPreset(.hd1920x1080) {
-            captureSession.sessionPreset = .hd1920x1080
-        } else if captureSession.canSetSessionPreset(.high) {
+        if captureSession.canSetSessionPreset(.high) {
             captureSession.sessionPreset = .high
         }
 
         guard let videoCaptureDevice = AVCaptureDevice.default(for: .video) else { return }
+        self.videoDevice = videoCaptureDevice
         
-        // Enable continuous auto-focus to ensure sharp images
+        // Enable continuous auto-focus and subject monitoring for maximum clarity
         do {
             try videoCaptureDevice.lockForConfiguration()
             if videoCaptureDevice.isFocusModeSupported(.continuousAutoFocus) {
                 videoCaptureDevice.focusMode = .continuousAutoFocus
+                if videoCaptureDevice.isAutoFocusRangeRestrictionSupported {
+                    videoCaptureDevice.autoFocusRangeRestriction = .near
+                }
+                if videoCaptureDevice.isFocusPointOfInterestSupported {
+                    videoCaptureDevice.focusPointOfInterest = CGPoint(x: 0.5, y: 0.5)
+                }
             }
             if videoCaptureDevice.isExposureModeSupported(.continuousAutoExposure) {
                 videoCaptureDevice.exposureMode = .continuousAutoExposure
+                if videoCaptureDevice.isExposurePointOfInterestSupported {
+                    videoCaptureDevice.exposurePointOfInterest = CGPoint(x: 0.5, y: 0.5)
+                }
             }
+            videoCaptureDevice.isSubjectAreaChangeMonitoringEnabled = true
+            
+            // Zoom in slightly so the user holds the phone at a comfortable distance (improving focus)
+            let desiredZoom: CGFloat = 1.5
+            videoCaptureDevice.videoZoomFactor = min(desiredZoom, videoCaptureDevice.activeFormat.videoMaxZoomFactor)
+            
             videoCaptureDevice.unlockForConfiguration()
         } catch {
             print("Failed to configure focus/exposure.")
+        }
+
+        // Listen to subject area changes to trigger re-focus immediately
+        self.subjectAreaChangeObserver = NotificationCenter.default.addObserver(
+            forName: NSNotification.Name.AVCaptureDeviceSubjectAreaDidChange,
+            object: videoCaptureDevice,
+            queue: .main
+        ) { [weak self] _ in
+            self?.resetFocus()
         }
 
         let videoInput: AVCaptureDeviceInput
@@ -139,20 +164,14 @@ class ScannerPlatformView: NSObject, FlutterPlatformView, AVCaptureMetadataOutpu
             return
         }
 
-        let metadataOutput = AVCaptureMetadataOutput()
-        if (captureSession.canAddOutput(metadataOutput)) {
-            captureSession.addOutput(metadataOutput)
-            metadataOutput.setMetadataObjectsDelegate(self, queue: DispatchQueue.main)
-            metadataOutput.metadataObjectTypes = [.qr, .ean8, .ean13, .pdf417, .code128, .code39, .code93, .itf14, .dataMatrix, .aztec]
-        } else {
-            return
-        }
-
+        // Set up the sample buffer video output for Vision framework processing
         let videoOutput = AVCaptureVideoDataOutput()
         videoOutput.videoSettings = [kCVPixelBufferPixelFormatTypeKey as String: Int(kCVPixelFormatType_32BGRA)]
+        videoOutput.alwaysDiscardsLateVideoFrames = true
         if captureSession.canAddOutput(videoOutput) {
             captureSession.addOutput(videoOutput)
-            videoOutput.setSampleBufferDelegate(self, queue: DispatchQueue(label: "videoQueue"))
+            let queue = DispatchQueue(label: "com.example.flutter_full_screen_scanner.captureOutputQueue", qos: .userInitiated)
+            videoOutput.setSampleBufferDelegate(self, queue: queue)
         }
 
         _view.videoPreviewLayer.session = captureSession
@@ -163,150 +182,189 @@ class ScannerPlatformView: NSObject, FlutterPlatformView, AVCaptureMetadataOutpu
         }
     }
 
-    func metadataOutput(_ output: AVCaptureMetadataOutput, didOutput metadataObjects: [AVMetadataObject], from connection: AVCaptureConnection) {
-        if let metadataObject = metadataObjects.first {
-            guard let readableObject = metadataObject as? AVMetadataMachineReadableCodeObject else { return }
-            guard let stringValue = readableObject.stringValue else { return }
+    func captureOutput(_ output: AVCaptureOutput, didOutput sampleBuffer: CMSampleBuffer, from connection: AVCaptureConnection) {
+        guard let pixelBuffer = CMSampleBufferGetImageBuffer(sampleBuffer) else { return }
+        
+        if imagesCurrentlyBeingProcessed {
+            return
+        }
+        imagesCurrentlyBeingProcessed = true
+        
+        let currentTime = Date().timeIntervalSince1970 * 1000
+        
+        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+            guard let self = self else { return }
             
-            let currentTime = Date().timeIntervalSince1970 * 1000
-            
-            if (!allowDuplicate) {
-                if let lastScanTime = scannedCache[stringValue], (currentTime - lastScanTime) < Double(duplicateDelay) {
+            // Run VNDetectBarcodesRequest for high-performance deep-learning barcode recognition
+            let requestHandler = VNImageRequestHandler(cvPixelBuffer: pixelBuffer, options: [:])
+            let request = VNDetectBarcodesRequest { [weak self] request, error in
+                guard let self = self else { return }
+                
+                if let error = error {
+                    print("Vision error: \(error.localizedDescription)")
+                }
+                
+                guard let observations = request.results as? [VNBarcodeObservation] else {
+                    self.imagesCurrentlyBeingProcessed = false
                     return
                 }
-            }
-            
-            // Determine current orientation
-            let currentOrientation = _view.videoPreviewLayer.connection?.videoOrientation ?? .portrait
-            
-            // Map Vision normalized coordinates (0..1) back to pixel coordinates based on orientation
-            var corners: [[String: Double]] = []
-            if !readableObject.corners.isEmpty {
-                for point in readableObject.corners {
-                    switch currentOrientation {
-                    case .portrait:
-                        corners.append(["x": Double(1.0 - point.y), "y": Double(point.x)])
-                    case .landscapeRight:
-                        corners.append(["x": Double(point.x), "y": Double(point.y)])
-                    case .landscapeLeft:
-                        corners.append(["x": Double(1.0 - point.x), "y": Double(1.0 - point.y)])
-                    case .portraitUpsideDown:
-                        corners.append(["x": Double(point.y), "y": Double(1.0 - point.x)])
-                    @unknown default:
-                        corners.append(["x": Double(1.0 - point.y), "y": Double(point.x)])
+                if observations.isEmpty {
+                    self.imagesCurrentlyBeingProcessed = false
+                    return
+                }
+                
+                // Crop and generate JPEG bytes in the background thread (since CIContext is CPU/GPU intensive)
+                var imageBytes: FlutterStandardTypedData? = nil
+                var imgWidth = 0.0
+                var imgHeight = 0.0
+                if self.enableImageCapture {
+                    var ciOrientation: CGImagePropertyOrientation = .right
+                    DispatchQueue.main.sync {
+                        if let orientation = self._view.videoPreviewLayer.connection?.videoOrientation {
+                            switch orientation {
+                            case .portrait: ciOrientation = .right
+                            case .landscapeRight: ciOrientation = .up
+                            case .landscapeLeft: ciOrientation = .down
+                            case .portraitUpsideDown: ciOrientation = .left
+                            @unknown default: ciOrientation = .right
+                            }
+                        }
                     }
-                }
-            }
-            
-            if corners.count < 4 { return }
-
-            // 1. Check if barcode is too close to screen edges (2% margin) to prevent partial cuts
-            let edgeMargin = 0.02
-            let tooCloseToEdge = corners.contains { pt in
-                guard let x = pt["x"], let y = pt["y"] else { return true }
-                return x < edgeMargin || x > 1.0 - edgeMargin || y < edgeMargin || y > 1.0 - edgeMargin
-            }
-            if tooCloseToEdge {
-                return // Skip cut off barcode
-            }
-
-            // 2. Check scan window if set
-            if let swWidth = self.scanWindowWidthFactor, let swHeight = self.scanWindowHeightFactor {
-                let xMin = 0.5 - swWidth / 2.0
-                let xMax = 0.5 + swWidth / 2.0
-                let yMin = 0.5 - swHeight / 2.0
-                let yMax = 0.5 + swHeight / 2.0
-
-                let allInside = corners.allSatisfy { pt in
-                    guard let x = pt["x"], let y = pt["y"] else { return false }
-                    return x >= xMin && x <= xMax && y >= yMin && y <= yMax
-                }
-                if !allInside {
-                    return // Skip since it's not fully inside the scan window
-                }
-            }
-            
-            scannedCache[stringValue] = currentTime
-            
-            var result: [String: Any] = [
-                "value": stringValue,
-                "type": readableObject.type.rawValue,
-                "timestamp": Int(currentTime),
-                "corners": corners
-            ]
-            
-            if !self.enableImageCapture {
-                // Dispatch immediately and skip capturing thread entirely
-                DispatchQueue.main.async {
-                    self.plugin.eventSink?([
-                        "type": "scanned",
-                        "data": [result]
-                    ])
-                }
-                return
-            }
-            
-            // Pass the current orientation to the capture thread
-            result["orientation"] = _view.videoPreviewLayer.connection?.videoOrientation.rawValue ?? AVCaptureVideoOrientation.portrait.rawValue
-            
-            // Request the next frame to grab the image bytes
-            self.pendingLock.lock()
-            self.pendingBarcodeData = result
-            self.pendingLock.unlock()
-        }
-    }
-
-    func captureOutput(_ output: AVCaptureOutput, didOutput sampleBuffer: CMSampleBuffer, from connection: AVCaptureConnection) {
-        var pending: [String: Any]? = nil
-        self.pendingLock.lock()
-        if let p = self.pendingBarcodeData {
-            pending = p
-            self.pendingBarcodeData = nil
-        }
-        self.pendingLock.unlock()
-        
-        if let pending = pending {
-            var result = pending
-            
-            if let pixelBuffer = CMSampleBufferGetImageBuffer(sampleBuffer) {
-                let orientationRaw = pending["orientation"] as? Int ?? AVCaptureVideoOrientation.portrait.rawValue
-                let orientation = AVCaptureVideoOrientation(rawValue: orientationRaw) ?? .portrait
-                
-                var ciOrientation: CGImagePropertyOrientation = .right
-                switch orientation {
-                case .portrait: ciOrientation = .right
-                case .landscapeRight: ciOrientation = .up
-                case .landscapeLeft: ciOrientation = .down
-                case .portraitUpsideDown: ciOrientation = .left
-                @unknown default: ciOrientation = .right
-                }
-                
-                let ciImage = CIImage(cvPixelBuffer: pixelBuffer).oriented(ciOrientation)
-                let context = CIContext()
-                if let cgImage = context.createCGImage(ciImage, from: ciImage.extent) {
-                    let uiImage = UIImage(cgImage: cgImage)
-                    if let jpegData = uiImage.jpegData(compressionQuality: 1.0) {
-                        result["imageBytes"] = FlutterStandardTypedData(bytes: jpegData)
-                        result["imageWidth"] = Int(uiImage.size.width)
-                        result["imageHeight"] = Int(uiImage.size.height)
-                        
-                        // Fix corners scaling since bounds were normalized 0..1
-                        if let corners = result["corners"] as? [[String: Double]] {
-                            let w = Double(uiImage.size.width)
-                            let h = Double(uiImage.size.height)
-                            let scaledCorners = corners.map { ["x": $0["x"]! * w, "y": $0["y"]! * h] }
-                            result["corners"] = scaledCorners
+                    
+                    let ciContext = CIContext()
+                    let ciImage = CIImage(cvPixelBuffer: pixelBuffer).oriented(ciOrientation)
+                    if let cgImage = ciContext.createCGImage(ciImage, from: ciImage.extent) {
+                        let uiImage = UIImage(cgImage: cgImage)
+                        imgWidth = Double(uiImage.size.width)
+                        imgHeight = Double(uiImage.size.height)
+                        if let jpegData = uiImage.jpegData(compressionQuality: 0.8) {
+                            imageBytes = FlutterStandardTypedData(bytes: jpegData)
                         }
                     }
                 }
+                
+                // Dispatch to main thread to perform UIKit coordinate translation safely
+                DispatchQueue.main.async { [weak self] in
+                    guard let self = self else { return }
+                    defer {
+                        self.imagesCurrentlyBeingProcessed = false
+                    }
+                    
+                    let bounds = self._view.bounds
+                    let viewWidth = Double(bounds.width)
+                    let viewHeight = Double(bounds.height)
+                    
+                    guard viewWidth > 0 && viewHeight > 0 else { return }
+                    
+                    var finalResults: [[String: Any]] = []
+                    
+                    for observation in observations {
+                        guard let stringValue = observation.payloadStringValue else { continue }
+                        
+                        // Map normalized Vision coordinates (origin bottom-left) to logical screen space (origin top-left)
+                        // using built-in preview layer coordinate transformer
+                        let corners = [observation.topLeft, observation.topRight, observation.bottomRight, observation.bottomLeft].map { point -> [String: Double] in
+                            let devicePoint = CGPoint(x: point.x, y: 1.0 - point.y)
+                            let screenPoint = self._view.videoPreviewLayer.layerPointConverted(fromCaptureDevicePoint: devicePoint)
+                            return ["x": Double(screenPoint.x), "y": Double(screenPoint.y)]
+                        }
+                        
+                        if corners.count < 4 { continue }
+                        
+                        // Native Scan Window Containment Check
+                        if let swWidth = self.scanWindowWidthFactor, let swHeight = self.scanWindowHeightFactor {
+                            let xMin = 0.5 - swWidth / 2.0
+                            let xMax = 0.5 + swWidth / 2.0
+                            let yMin = 0.5 - swHeight / 2.0
+                            let yMax = 0.5 + swHeight / 2.0
+                            
+                            // Calculate centroid in screen pixels
+                            var sumX = 0.0
+                            var sumY = 0.0
+                            for pt in corners {
+                                sumX += pt["x"]!
+                                sumY += pt["y"]!
+                            }
+                            let centroidX = sumX / Double(corners.count)
+                            let centroidY = sumY / Double(corners.count)
+                            
+                            // Normalize centroid relative to screen layout bounds
+                            let normX = centroidX / viewWidth
+                            let normY = centroidY / viewHeight
+                            
+                            if normX < xMin || normX > xMax || normY < yMin || normY > yMax {
+                                continue // Skip barcode outside orange scan window
+                            }
+                        }
+                        
+                        // Duplicate prevention
+                        if (!self.allowDuplicate) {
+                            if let lastScanTime = self.scannedCache[stringValue], (currentTime - lastScanTime) < Double(self.duplicateDelay) {
+                                continue
+                            }
+                        }
+                        
+                        self.scannedCache[stringValue] = currentTime
+                        
+                        let barcodeType = self.mapVisionSymbologyToMetadataType(observation.symbology)
+                        
+                        var result: [String: Any] = [
+                            "value": stringValue,
+                            "type": barcodeType,
+                            "timestamp": Int(currentTime),
+                            "corners": corners,
+                            "imageWidth": Int(viewWidth),
+                            "imageHeight": Int(viewHeight)
+                        ]
+                        
+                        if let bytes = imageBytes {
+                            result["imageBytes"] = bytes
+                            result["imageWidth"] = Int(imgWidth)
+                            result["imageHeight"] = Int(imgHeight)
+                            
+                            let scaledCorners = corners.map { pt -> [String: Double] in
+                                let normX = pt["x"]! / viewWidth
+                                let normY = pt["y"]! / viewHeight
+                                return ["x": normX * imgWidth, "y": normY * imgHeight]
+                            }
+                            result["corners"] = scaledCorners
+                        }
+                        
+                        finalResults.append(result)
+                    }
+                    
+                    if !finalResults.isEmpty {
+                        self.plugin.eventSink?([
+                            "type": "scanned",
+                            "data": finalResults
+                        ])
+                    }
+                }
             }
             
-            DispatchQueue.main.async {
-                self.plugin.eventSink?([
-                    "type": "scanned",
-                    "data": [result]
-                ])
+            request.symbologies = [.code128, .qr, .ean8, .ean13, .pdf417, .code39, .code93, .itf14, .dataMatrix, .aztec]
+            do {
+                try requestHandler.perform([request])
+            } catch {
+                print("Vision perform error: \(error.localizedDescription)")
+                self.imagesCurrentlyBeingProcessed = false
             }
+        }
+    }
+    
+    private func mapVisionSymbologyToMetadataType(_ symbology: VNBarcodeSymbology) -> String {
+        switch symbology {
+        case .code128: return AVMetadataObject.ObjectType.code128.rawValue
+        case .qr: return AVMetadataObject.ObjectType.qr.rawValue
+        case .ean8: return AVMetadataObject.ObjectType.ean8.rawValue
+        case .ean13: return AVMetadataObject.ObjectType.ean13.rawValue
+        case .pdf417: return AVMetadataObject.ObjectType.pdf417.rawValue
+        case .code39: return AVMetadataObject.ObjectType.code39.rawValue
+        case .code93: return AVMetadataObject.ObjectType.code93.rawValue
+        case .itf14: return AVMetadataObject.ObjectType.itf14.rawValue
+        case .dataMatrix: return AVMetadataObject.ObjectType.dataMatrix.rawValue
+        case .aztec: return AVMetadataObject.ObjectType.aztec.rawValue
+        default: return symbology.rawValue
         }
     }
 
@@ -372,6 +430,10 @@ class ScannerPlatformView: NSObject, FlutterPlatformView, AVCaptureMetadataOutpu
     }
     
     func dispose() {
+        if let observer = subjectAreaChangeObserver {
+            NotificationCenter.default.removeObserver(observer)
+            subjectAreaChangeObserver = nil
+        }
         if let session = captureSession {
             if session.isRunning {
                 session.stopRunning()
@@ -386,5 +448,30 @@ class ScannerPlatformView: NSObject, FlutterPlatformView, AVCaptureMetadataOutpu
         _view.videoPreviewLayer.session = nil
         captureSession = nil
         scannedCache.removeAll()
+    }
+
+    private func resetFocus() {
+        guard let device = videoDevice else { return }
+        do {
+            try device.lockForConfiguration()
+            if device.isFocusModeSupported(.continuousAutoFocus) {
+                device.focusMode = .continuousAutoFocus
+                if device.isAutoFocusRangeRestrictionSupported {
+                    device.autoFocusRangeRestriction = .near
+                }
+                if device.isFocusPointOfInterestSupported {
+                    device.focusPointOfInterest = CGPoint(x: 0.5, y: 0.5)
+                }
+            }
+            if device.isExposureModeSupported(.continuousAutoExposure) {
+                device.exposureMode = .continuousAutoExposure
+                if device.isExposurePointOfInterestSupported {
+                    device.exposurePointOfInterest = CGPoint(x: 0.5, y: 0.5)
+                }
+            }
+            device.unlockForConfiguration()
+        } catch {
+            print("Failed to reset focus on subject area change.")
+        }
     }
 }

@@ -67,15 +67,14 @@ class BarcodeAnalyzer(
                                 val cornersList = barcode.cornerPoints ?: continue
                                 if (cornersList.size < 4) continue
 
-                                // 1. Check if barcode is cut off by the edge of the image sensor frame
-                                val padding = 15f
-                                val cutOffBySensor = cornersList.any { point ->
-                                    point.x < padding || point.x > imgWidth - padding ||
-                                    point.y < padding || point.y > imgHeight - padding
+                                // Map points to upright space first using the rotation matrix
+                                val uprightCorners = cornersList.map { point ->
+                                    val pts = floatArrayOf(point.x.toFloat(), point.y.toFloat())
+                                    matrix.mapPoints(pts)
+                                    android.graphics.PointF(pts[0], pts[1])
                                 }
-                                if (cutOffBySensor) {
-                                    continue // Skip cut off barcode
-                                }
+
+                                // Cut off sensor check removed to prevent scanning failures on long barcodes
 
                                 // 2. Check scan window if set
                                 if (scanWindowWidthFactor != null && scanWindowHeightFactor != null) {
@@ -94,50 +93,29 @@ class BarcodeAnalyzer(
                                         val yMin = 0.5 - scanWindowHeightFactor / 2.0
                                         val yMax = 0.5 + scanWindowHeightFactor / 2.0
 
-                                        var allInside = true
-                                        for (point in cornersList) {
-                                            val px = point.x * scale - dx
-                                            val py = point.y * scale - dy
+                                        if (uprightCorners.isNotEmpty()) {
+                                            var sumX = 0f
+                                            var sumY = 0f
+                                            for (point in uprightCorners) {
+                                                sumX += point.x
+                                                sumY += point.y
+                                            }
+                                            val centroidX = sumX / uprightCorners.size
+                                            val centroidY = sumY / uprightCorners.size
+
+                                            val px = centroidX * scale - dx
+                                            val py = centroidY * scale - dy
                                             val nx = px / pvWidth
                                             val ny = py / pvHeight
 
                                             if (nx < xMin || nx > xMax || ny < yMin || ny > yMax) {
-                                                allInside = false
-                                                break
+                                                continue // Skip since the center of the barcode is not inside the scan window
                                             }
                                         }
-                                        if (!allInside) {
-                                            continue // Skip since it's not fully inside the scan window
-                                        }
                                     }
                                 }
 
-                                // 3. Ensure it's not too close to the preview bounds
-                                val pvWidth = previewView?.width?.toFloat() ?: 0f
-                                val pvHeight = previewView?.height?.toFloat() ?: 0f
-                                if (pvWidth > 0f && pvHeight > 0f) {
-                                    val scaleX = pvWidth / imgWidth.toFloat()
-                                    val scaleY = pvHeight / imgHeight.toFloat()
-                                    val scale = Math.max(scaleX, scaleY)
-                                    val dx = (imgWidth.toFloat() * scale - pvWidth) / 2f
-                                    val dy = (imgHeight.toFloat() * scale - pvHeight) / 2f
-
-                                    val edgeMargin = 0.02f // 2% margin from screen edges
-                                    var tooCloseToEdge = false
-                                    for (point in cornersList) {
-                                        val px = point.x * scale - dx
-                                        val py = point.y * scale - dy
-                                        val nx = px / pvWidth
-                                        val ny = py / pvHeight
-                                        if (nx < edgeMargin || nx > 1.0f - edgeMargin || ny < edgeMargin || ny > 1.0f - edgeMargin) {
-                                            tooCloseToEdge = true
-                                            break
-                                        }
-                                    }
-                                    if (tooCloseToEdge) {
-                                        continue
-                                    }
-                                }
+                                // Edge bounds check removed to prevent scanning failures on long barcodes
 
                                 val lastScanTime = scannedCache[value]
                                 val isNewScan = lastScanTime == null || (currentTime - lastScanTime) >= duplicateDelay
@@ -179,7 +157,7 @@ class BarcodeAnalyzer(
                                 }
 
                                 // ML Kit cornerPoints match the upright photo coordinates 1:1
-                                val corners = cornersList.map { point ->
+                                val corners = uprightCorners.map { point ->
                                     mapOf("x" to point.x.toDouble(), "y" to point.y.toDouble())
                                 }
 

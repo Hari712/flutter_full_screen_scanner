@@ -1,3 +1,8 @@
+## 1.0.6
+* Fix nearby/adjacent barcode scanning issues on iOS with native scan window filtering.
+* Fix iOS CALayer coordinate conversion thread safety issues.
+* Fix aspect ratio scaling issues on iOS by correctly orienting captured frame images.
+
 ## 1.0.5
 * Restrict barcode scanning strictly to the active `scanWindow` area (if configured).
 * Prevent partial/half-visible barcode scans to avoid incorrect decoded text.

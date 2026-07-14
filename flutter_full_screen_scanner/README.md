@@ -18,7 +18,7 @@ Add the following to your `pubspec.yaml`:
 
 ```yaml
 dependencies:
-  flutter_full_screen_scanner: ^1.0.5
+  flutter_full_screen_scanner: ^1.0.6
 ```
 
 ## Android Setup

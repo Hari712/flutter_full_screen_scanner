@@ -1,3 +1,8 @@
+## 1.0.6
+* Fix nearby/adjacent barcode collision by implementing native scan window containment check.
+* Fix CALayer coordinate conversion thread safety issues by executing on main thread block.
+* Fix aspect ratio scaling issues by rotating captured image orientation correctly.
+
 ## 1.0.5
 * Restrict barcode scanning strictly to the active `scanWindow` area (if configured).
 * Prevent partial/half-visible barcode scans at the screen boundaries.
