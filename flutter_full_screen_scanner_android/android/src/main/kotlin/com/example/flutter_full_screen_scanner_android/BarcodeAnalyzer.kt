@@ -10,6 +10,25 @@ import com.google.mlkit.vision.barcode.BarcodeScanning
 import com.google.mlkit.vision.barcode.common.Barcode
 import com.google.mlkit.vision.common.InputImage
 
+fun mapBarcodeFormat(format: Int): String {
+    return when (format) {
+        Barcode.FORMAT_CODE_128 -> "org.ansi.Code128"
+        Barcode.FORMAT_CODE_39 -> "org.ansi.Code39"
+        Barcode.FORMAT_CODE_93 -> "org.ansi.Code93"
+        Barcode.FORMAT_CODABAR -> "org.ansi.Codabar"
+        Barcode.FORMAT_DATA_MATRIX -> "org.iso.DataMatrix"
+        Barcode.FORMAT_EAN_13 -> "org.gs1.EAN-13"
+        Barcode.FORMAT_EAN_8 -> "org.gs1.EAN-8"
+        Barcode.FORMAT_ITF -> "org.ansi.Interleaved2of5"
+        Barcode.FORMAT_QR_CODE -> "org.iso.QRCode"
+        Barcode.FORMAT_UPC_A -> "org.gs1.UPC-A"
+        Barcode.FORMAT_UPC_E -> "org.gs1.UPC-E"
+        Barcode.FORMAT_PDF417 -> "org.iso.PDF417"
+        Barcode.FORMAT_AZTEC -> "org.iso.Aztec"
+        else -> "unknown"
+    }
+}
+
 class BarcodeAnalyzer(
     private val previewView: PreviewView? = null,
     private val scanWindowWidthFactor: Double? = null,
@@ -46,6 +65,7 @@ class BarcodeAnalyzer(
                 .addOnSuccessListener { barcodes ->
                     try {
                         if (barcodes.isNotEmpty()) {
+                            android.util.Log.d("BarcodeAnalyzer", "Detected ${barcodes.size} barcodes")
                             val currentTime = System.currentTimeMillis()
                             val validBarcodes = mutableListOf<Map<String, Any?>>()
 
@@ -67,11 +87,10 @@ class BarcodeAnalyzer(
                                 val cornersList = barcode.cornerPoints ?: continue
                                 if (cornersList.size < 4) continue
 
-                                // Map points to upright space first using the rotation matrix
-                                val uprightCorners = cornersList.map { point ->
-                                    val pts = floatArrayOf(point.x.toFloat(), point.y.toFloat())
-                                    matrix.mapPoints(pts)
-                                    android.graphics.PointF(pts[0], pts[1])
+                                // Map points to upright space. ML Kit's cornerPoints are already in the rotated (upright) space.
+                                val uprightCorners = cornersList.mapIndexed { idx, point ->
+                                    android.util.Log.d("BarcodeAnalyzer", "Corner $idx: raw=(${point.x}, ${point.y}), rotation=$rotation, imgSize=(${imageProxy.width}x${imageProxy.height})")
+                                    android.graphics.PointF(point.x.toFloat(), point.y.toFloat())
                                 }
 
                                 // Cut off sensor check removed to prevent scanning failures on long barcodes
@@ -103,6 +122,7 @@ class BarcodeAnalyzer(
                                                 nx >= xMin && nx <= xMax && ny >= yMin && ny <= yMax
                                             }
                                             if (!allInside) {
+                                                android.util.Log.d("BarcodeAnalyzer", "Barcode skipped (not inside scan window): $value")
                                                 continue // Skip since the barcode is not fully inside the scan window
                                             }
                                         }
@@ -115,6 +135,7 @@ class BarcodeAnalyzer(
                                 val isNewScan = lastScanTime == null || (currentTime - lastScanTime) >= duplicateDelay
 
                                 if (!allowDuplicate && !isNewScan) {
+                                    android.util.Log.d("BarcodeAnalyzer", "Barcode skipped (duplicate): $value")
                                     continue // Skip duplicate
                                 }
 
@@ -158,7 +179,7 @@ class BarcodeAnalyzer(
                                 validBarcodes.add(
                                     mapOf(
                                         "value" to value,
-                                        "type" to barcode.format.toString(),
+                                        "type" to mapBarcodeFormat(barcode.format),
                                         "corners" to corners,
                                         "imageWidth" to outWidth,
                                         "imageHeight" to outHeight,
@@ -177,7 +198,7 @@ class BarcodeAnalyzer(
                     }
                 }
                 .addOnFailureListener {
-                    // Optional logging
+                    android.util.Log.e("BarcodeAnalyzer", "ML Kit barcode scanning failed", it)
                 }
                 .addOnCompleteListener {
                     imageProxy.close()

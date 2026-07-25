@@ -19,6 +19,7 @@ class ScannerPlatformView(
 
     private val previewView: PreviewView = PreviewView(context).apply {
         implementationMode = PreviewView.ImplementationMode.COMPATIBLE
+        scaleType = PreviewView.ScaleType.FILL_CENTER
     }
     private var cameraProvider: ProcessCameraProvider? = null
     private var camera: Camera? = null
@@ -122,9 +123,15 @@ class ScannerPlatformView(
                     imageAnalysis
                 )
 
-
-
-            } catch(exc: Exception) {
+                val zoomState = camera?.cameraInfo?.zoomState?.value
+                if (zoomState != null) {
+                    val maxZoom = zoomState.maxZoomRatio
+                    val minZoom = zoomState.minZoomRatio
+                    val targetZoom = 1.0f.coerceIn(minZoom, maxZoom)
+                    camera?.cameraControl?.setZoomRatio(targetZoom)
+                } else {
+                    camera?.cameraControl?.setZoomRatio(1.0f)
+                }            } catch(exc: Exception) {
                 // Log exception
             }
 

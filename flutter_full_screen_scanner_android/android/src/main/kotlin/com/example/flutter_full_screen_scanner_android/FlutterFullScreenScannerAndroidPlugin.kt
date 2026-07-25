@@ -165,7 +165,7 @@ class FlutterFullScreenScannerAndroidPlugin : FlutterPlugin, ActivityAware, Scan
                         }
                         ScannerResultData(
                             value = barcode.rawValue,
-                            type = barcode.format.toString(),
+                            type = mapBarcodeFormat(barcode.format),
                             corners = corners,
                             imageWidth = image.width.toLong(),
                             imageHeight = image.height.toLong(),

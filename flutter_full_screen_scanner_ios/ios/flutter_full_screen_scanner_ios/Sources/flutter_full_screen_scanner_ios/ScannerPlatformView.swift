@@ -147,7 +147,7 @@ class ScannerPlatformView: NSObject, FlutterPlatformView, AVCaptureVideoDataOutp
             videoCaptureDevice.isSubjectAreaChangeMonitoringEnabled = true
             
             // Zoom in slightly so the user holds the phone at a comfortable distance (improving focus)
-            let desiredZoom: CGFloat = 2.0
+            let desiredZoom: CGFloat = 1.0
             videoCaptureDevice.videoZoomFactor = min(desiredZoom, videoCaptureDevice.activeFormat.videoMaxZoomFactor)
             
             videoCaptureDevice.unlockForConfiguration()

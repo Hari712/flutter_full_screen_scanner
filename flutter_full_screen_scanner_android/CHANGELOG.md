@@ -1,3 +1,9 @@
+## 1.0.8
+* Fixed coordinate double-rotation bug where barcode coordinate mapping was shifted.
+* Switched camera preview to COMPATIBLE mode (TextureView) and configured explicit Aspect Fill scaling (`FILL_CENTER`) to resolve stretching/distortion and restore visibility of Flutter UI overlays.
+* Mapped ML Kit barcode format constants to standard iOS/AVFoundation equivalent strings (e.g. `org.iso.QRCode`) to align scan mode filtering behavior exactly with iOS.
+* Removed default 2x zoom (defaulting to 1.0x).
+
 ## 1.0.7
 * Ensure all barcode corners are fully within the scan window (instead of just the centroid) to prevent partial/half-visible barcode scans.
 

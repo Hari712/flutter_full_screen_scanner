@@ -1,3 +1,6 @@
+## 1.0.8
+* Removed default zoom (defaulting to 1.0x) to match the Android behavior.
+
 ## 1.0.7
 * Ensure all barcode corners are fully within the scan window (instead of just the centroid) to prevent partial/half-visible barcode scans.
 * Remove autofocus range restriction (`.none` instead of `.near`) to improve focus on barcodes at varying distances.
