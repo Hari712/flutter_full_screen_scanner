@@ -1,3 +1,6 @@
+## 1.0.9
+* Bumped version to match main package.
+
 ## 1.0.8
 * Bumped version to match main package.
 

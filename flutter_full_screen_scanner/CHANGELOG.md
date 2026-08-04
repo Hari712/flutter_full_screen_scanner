@@ -1,3 +1,7 @@
+## 1.0.9
+* Android: Fixed memory leak and potential crash in `BarcodeAnalyzer` by properly recycling source and rotated bitmaps in success and final execution paths.
+* Update platform implementation dependency constraints to `^1.0.9`.
+
 ## 1.0.8
 * Android: Fixed coordinate double-rotation bug where barcode coordinate mapping was shifted, resolving the issue where valid barcodes were rejected by Dart's vertical boundaries check.
 * Android: Switched camera preview to COMPATIBLE mode (TextureView) and configured explicit Aspect Fill scaling (`FILL_CENTER`). This resolves stretching/distortion issues and restores visibility of Flutter UI widgets (borders, buttons, overlays) layered on top of the camera preview.

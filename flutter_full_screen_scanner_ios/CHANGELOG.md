@@ -1,3 +1,6 @@
+## 1.0.9
+* Bumped version to match main package for compatibility.
+
 ## 1.0.8
 * Removed default zoom (defaulting to 1.0x) to match the Android behavior.
 

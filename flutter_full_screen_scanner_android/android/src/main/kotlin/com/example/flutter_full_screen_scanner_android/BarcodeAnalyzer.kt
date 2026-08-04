@@ -63,14 +63,13 @@ class BarcodeAnalyzer(
             
             scanner.process(image)
                 .addOnSuccessListener { barcodes ->
+                    var rawBitmap: android.graphics.Bitmap? = null
+                    var uprightBitmap: android.graphics.Bitmap? = null
                     try {
                         if (barcodes.isNotEmpty()) {
                             android.util.Log.d("BarcodeAnalyzer", "Detected ${barcodes.size} barcodes")
                             val currentTime = System.currentTimeMillis()
                             val validBarcodes = mutableListOf<Map<String, Any?>>()
-
-                            var rawBitmap: android.graphics.Bitmap? = null
-                            var uprightBitmap: android.graphics.Bitmap? = null
 
                             // Matrix to rotate raw sensor bitmap into upright display orientation
                             val matrix = android.graphics.Matrix()
@@ -100,7 +99,7 @@ class BarcodeAnalyzer(
                                     val pvWidth = previewView?.width?.toFloat() ?: 0f
                                     val pvHeight = previewView?.height?.toFloat() ?: 0f
 
-                                    if (pvWidth > 0f && pvHeight > 0f) {
+                                     if (pvWidth > 0f && pvHeight > 0f) {
                                         val scaleX = pvWidth / imgWidth.toFloat()
                                         val scaleY = pvHeight / imgHeight.toFloat()
                                         val scale = Math.max(scaleX, scaleY)
@@ -146,23 +145,23 @@ class BarcodeAnalyzer(
                                 if (isNewScan) {
                                     scannedCache[value] = currentTime
                                     if (enableImageCapture) {
-                                        try {
-                                            if (rawBitmap == null) {
-                                                rawBitmap = imageProxy.toBitmap()
-                                                uprightBitmap = android.graphics.Bitmap.createBitmap(
-                                                    rawBitmap, 0, 0, rawBitmap.width, rawBitmap.height, matrix, true
-                                                )
-                                            }
-                                            if (uprightBitmap != null) {
-                                                outWidth = uprightBitmap.width
-                                                outHeight = uprightBitmap.height
-                                                val stream = java.io.ByteArrayOutputStream()
-                                                uprightBitmap.compress(android.graphics.Bitmap.CompressFormat.JPEG, 100, stream)
-                                                imageBytes = stream.toByteArray()
-                                            }
-                                        } catch (e: Exception) {
-                                            // Fallback if bitmap conversion fails
-                                        }
+                                         try {
+                                             if (rawBitmap == null) {
+                                                 rawBitmap = imageProxy.toBitmap()
+                                                 uprightBitmap = android.graphics.Bitmap.createBitmap(
+                                                     rawBitmap, 0, 0, rawBitmap.width, rawBitmap.height, matrix, true
+                                                 )
+                                             }
+                                             if (uprightBitmap != null) {
+                                                 outWidth = uprightBitmap.width
+                                                 outHeight = uprightBitmap.height
+                                                 val stream = java.io.ByteArrayOutputStream()
+                                                 uprightBitmap.compress(android.graphics.Bitmap.CompressFormat.JPEG, 90, stream)
+                                                 imageBytes = stream.toByteArray()
+                                             }
+                                         } catch (e: Exception) {
+                                             // Fallback if bitmap conversion fails
+                                         }
                                     }
                                 } else {
                                     if (uprightBitmap != null) {
@@ -195,6 +194,11 @@ class BarcodeAnalyzer(
                         }
                     } catch (e: Exception) {
                         // Avoid crashes in success listener
+                    } finally {
+                        rawBitmap?.recycle()
+                        if (uprightBitmap != rawBitmap) {
+                            uprightBitmap?.recycle()
+                        }
                     }
                 }
                 .addOnFailureListener {

@@ -12,7 +12,7 @@ Instead, please depend on the main plugin:
 
 ```yaml
 dependencies:
-  flutter_full_screen_scanner: ^1.0.8
+  flutter_full_screen_scanner: ^1.0.9
 ```
 
 ## Architecture

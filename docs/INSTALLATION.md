@@ -4,7 +4,7 @@
 Add the plugin to your `pubspec.yaml`:
 ```yaml
 dependencies:
-  flutter_full_screen_scanner: ^1.0.8
+  flutter_full_screen_scanner: ^1.0.9
 ```
 
 ## 2. Android Configuration

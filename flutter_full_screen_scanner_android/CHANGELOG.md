@@ -1,3 +1,6 @@
+## 1.0.9
+* Fixed memory leak and potential crash in `BarcodeAnalyzer` by properly recycling source and rotated bitmaps in the success and final execution blocks.
+
 ## 1.0.8
 * Fixed coordinate double-rotation bug where barcode coordinate mapping was shifted.
 * Switched camera preview to COMPATIBLE mode (TextureView) and configured explicit Aspect Fill scaling (`FILL_CENTER`) to resolve stretching/distortion and restore visibility of Flutter UI overlays.
