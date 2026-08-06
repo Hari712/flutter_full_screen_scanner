@@ -30,6 +30,8 @@ class ScannerPlatformView(
     private var enableImageCapture: Boolean = true
     private var scanWindowWidthFactor: Double? = null
     private var scanWindowHeightFactor: Double? = null
+    private var supportedFormats: List<String>? = null
+    private var displayListener: android.hardware.display.DisplayManager.DisplayListener? = null
 
     init {
         val params = creationParams as? Map<*, *>
@@ -39,6 +41,7 @@ class ScannerPlatformView(
         enableImageCapture = params?.get("enableImageCapture") as? Boolean ?: true
         scanWindowWidthFactor = params?.get("scanWindowWidthFactor") as? Double
         scanWindowHeightFactor = params?.get("scanWindowHeightFactor") as? Double
+        supportedFormats = (params?.get("supportedFormats") as? List<*>)?.mapNotNull { it as? String }
 
         cameraExecutor = Executors.newSingleThreadExecutor()
         startCamera()
@@ -49,6 +52,12 @@ class ScannerPlatformView(
     }
 
     override fun dispose() {
+        displayListener?.let {
+            val displayManager = context.getSystemService(Context.DISPLAY_SERVICE) as? android.hardware.display.DisplayManager
+            displayManager?.unregisterDisplayListener(it)
+        }
+        displayListener = null
+
         try {
             cameraProvider?.unbindAll()
         } catch (e: Exception) {
@@ -75,6 +84,18 @@ class ScannerPlatformView(
                 ))
                 .build()
 
+            val displayManager = context.getSystemService(Context.DISPLAY_SERVICE) as android.hardware.display.DisplayManager
+            val display = try {
+                if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.R) {
+                    context.display
+                } else {
+                    null
+                }
+            } catch (e: Exception) {
+                null
+            } ?: (context.getSystemService(Context.WINDOW_SERVICE) as android.view.WindowManager).defaultDisplay
+            val initialRotation = display?.rotation ?: android.view.Surface.ROTATION_0
+
             val preview = Preview.Builder()
                 .setResolutionSelector(resolutionSelector)
                 .build()
@@ -85,6 +106,7 @@ class ScannerPlatformView(
             val imageAnalysis = ImageAnalysis.Builder()
                 .setResolutionSelector(resolutionSelector)
                 .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
+                .setTargetRotation(initialRotation)
                 .build()
                 .also {
                     it.setAnalyzer(cameraExecutor, BarcodeAnalyzer(
@@ -94,6 +116,8 @@ class ScannerPlatformView(
                         enableImageCapture = enableImageCapture,
                         allowDuplicate = allowDuplicate,
                         duplicateDelay = duplicateDelay,
+                        supportedFormats = supportedFormats,
+                        executor = cameraExecutor,
                         onBarcodeDetected = { results ->
                             ContextCompat.getMainExecutor(context).execute {
                                 plugin.eventSink?.success(
@@ -106,6 +130,21 @@ class ScannerPlatformView(
                         }
                     ))
                 }
+
+            displayListener?.let { displayManager.unregisterDisplayListener(it) }
+            displayListener = object : android.hardware.display.DisplayManager.DisplayListener {
+                override fun onDisplayAdded(displayId: Int) {}
+                override fun onDisplayRemoved(displayId: Int) {}
+                override fun onDisplayChanged(displayId: Int) {
+                    val currentRotation = display?.rotation ?: android.view.Surface.ROTATION_0
+                    try {
+                        imageAnalysis.targetRotation = currentRotation
+                    } catch (e: Exception) {
+                        // Ignored
+                    }
+                }
+            }
+            displayManager.registerDisplayListener(displayListener, android.os.Handler(android.os.Looper.getMainLooper()))
 
             val cameraSelector = CameraSelector.Builder()
                 .requireLensFacing(lensFacing)
