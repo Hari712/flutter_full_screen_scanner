@@ -500,7 +500,9 @@ class _FullScreenScannerPageState extends State<FullScreenScannerPage>
                           ],
                     scanWindow: fss.ScanWindow(
                       widthFactor: isBarcodeMode ? 0.70 : 0.50,
-                      heightFactor: isBarcodeMode ? (screenHeight > 0.0 ? 60.0 / screenHeight : 0.07) : 0.50,
+                      heightFactor: isBarcodeMode
+                          ? (screenHeight > 0.0 ? 60.0 / screenHeight : 0.07)
+                          : 0.50,
                     ),
                   ),
                 ),

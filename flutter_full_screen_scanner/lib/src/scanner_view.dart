@@ -34,7 +34,8 @@ class _ScannerViewState extends State<ScannerView> {
       'allowDuplicate': widget.options.allowDuplicate,
       'duplicateDelay': widget.options.duplicateDelay,
       'enableImageCapture': widget.options.enableImageCapture,
-      'supportedFormats': widget.options.supportedFormats.map((f) => f.name).toList(),
+      'supportedFormats':
+          widget.options.supportedFormats.map((f) => f.name).toList(),
       'rejectBlurryImages': widget.options.rejectBlurryImages,
       'blurThreshold': widget.options.blurThreshold,
       if (widget.options.scanWindow != null) ...{
