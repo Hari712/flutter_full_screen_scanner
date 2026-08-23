@@ -1,3 +1,14 @@
+## 1.1.0
+
+ - **FIX**(android): resolve memory leak/crash by recycling bitmaps in BarcodeAnalyzer & bump to v1.0.9.
+ - **FIX**: resolve static analyzer warnings for path dependencies and unused imports.
+ - **FEAT**: implement laplacian blur detection and resolve android scanner coordinates mapping and scan window issues.
+ - **FEAT**: Initial commit of Full Screen Scanner SDK.
+ - **DOCS**: update CHANGELOGs for federated packages to 1.0.4.
+ - **DOCS**: update README files to version 1.0.4.
+ - **DOCS**: update package version references to 1.0.1.
+ - **DOCS**: add 1.0.1 to changelog for pub.dev publish.
+
 ## 1.0.9
 * Bumped version to match main package.
 
