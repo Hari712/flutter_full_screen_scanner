@@ -78,6 +78,8 @@ class ScannerOptions {
   final bool autoZoom;
   final double imageQuality; // 0.0 to 1.0
   final double confidenceThreshold; // 0.0 to 1.0
+  final bool rejectBlurryImages;
+  final double blurThreshold;
 
   const ScannerOptions({
     this.scanMode = ScanMode.barcode,
@@ -97,6 +99,8 @@ class ScannerOptions {
     this.autoZoom = true,
     this.imageQuality = 1.0,
     this.confidenceThreshold = 0.5,
+    this.rejectBlurryImages = false,
+    this.blurThreshold = 35.0,
   });
 
   /// Maps the public Dart API to the Pigeon-generated data classes.

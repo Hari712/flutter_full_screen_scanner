@@ -71,6 +71,8 @@ class ScannerResultData {
   int? imageWidth;
   int? imageHeight;
   int? timestamp;
+  bool? imageRejected;
+  double? sharpnessScore;
 }
 
 @HostApi()

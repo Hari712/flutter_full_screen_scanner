@@ -62,6 +62,12 @@ class ScannerResult {
   /// The timestamp (milliseconds since epoch) when the scan occurred.
   final int timestamp;
 
+  /// Whether the image capture ran but was discarded for blur.
+  final bool imageRejected;
+
+  /// The raw sharpness score computed for the image.
+  final double? sharpnessScore;
+
   const ScannerResult({
     required this.value,
     required this.type,
@@ -70,6 +76,8 @@ class ScannerResult {
     this.imageWidth,
     this.imageHeight,
     required this.timestamp,
+    this.imageRejected = false,
+    this.sharpnessScore,
   });
 
   /// Creates a user-facing [ScannerResult] from the Pigeon-generated [ScannerResultData].
@@ -85,6 +93,8 @@ class ScannerResult {
       imageWidth: data.imageWidth,
       imageHeight: data.imageHeight,
       timestamp: data.timestamp ?? DateTime.now().millisecondsSinceEpoch,
+      imageRejected: data.imageRejected ?? false,
+      sharpnessScore: data.sharpnessScore,
     );
   }
 }

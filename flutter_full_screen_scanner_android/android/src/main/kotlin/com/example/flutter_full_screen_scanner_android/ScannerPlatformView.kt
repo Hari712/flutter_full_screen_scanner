@@ -23,6 +23,7 @@ class ScannerPlatformView(
     }
     private var cameraProvider: ProcessCameraProvider? = null
     private var camera: Camera? = null
+    private var analyzer: BarcodeAnalyzer? = null
     private var cameraExecutor: ExecutorService
     private var lensFacing = CameraSelector.LENS_FACING_BACK
     private var allowDuplicate: Boolean
@@ -31,6 +32,8 @@ class ScannerPlatformView(
     private var scanWindowWidthFactor: Double? = null
     private var scanWindowHeightFactor: Double? = null
     private var supportedFormats: List<String>? = null
+    private var rejectBlurryImages: Boolean = false
+    private var blurThreshold: Double = 35.0
     private var displayListener: android.hardware.display.DisplayManager.DisplayListener? = null
 
     init {
@@ -42,6 +45,8 @@ class ScannerPlatformView(
         scanWindowWidthFactor = params?.get("scanWindowWidthFactor") as? Double
         scanWindowHeightFactor = params?.get("scanWindowHeightFactor") as? Double
         supportedFormats = (params?.get("supportedFormats") as? List<*>)?.mapNotNull { it as? String }
+        rejectBlurryImages = params?.get("rejectBlurryImages") as? Boolean ?: false
+        blurThreshold = (params?.get("blurThreshold") as? Number)?.toDouble() ?: 35.0
 
         cameraExecutor = Executors.newSingleThreadExecutor()
         startCamera()
@@ -58,6 +63,9 @@ class ScannerPlatformView(
         }
         displayListener = null
 
+        analyzer?.close()
+        analyzer = null
+
         try {
             cameraProvider?.unbindAll()
         } catch (e: Exception) {
@@ -71,6 +79,8 @@ class ScannerPlatformView(
     }
 
     private fun startCamera() {
+        analyzer?.close()
+        analyzer = null
         val cameraProviderFuture = ProcessCameraProvider.getInstance(context)
 
         cameraProviderFuture.addListener({
@@ -79,7 +89,7 @@ class ScannerPlatformView(
             val resolutionSelector = androidx.camera.core.resolutionselector.ResolutionSelector.Builder()
                 .setAspectRatioStrategy(androidx.camera.core.resolutionselector.AspectRatioStrategy.RATIO_16_9_FALLBACK_AUTO_STRATEGY)
                 .setResolutionStrategy(androidx.camera.core.resolutionselector.ResolutionStrategy(
-                    android.util.Size(1920, 1080),
+                    android.util.Size(1280, 720),
                     androidx.camera.core.resolutionselector.ResolutionStrategy.FALLBACK_RULE_CLOSEST_HIGHER_THEN_LOWER
                 ))
                 .build()
@@ -103,32 +113,37 @@ class ScannerPlatformView(
                     it.setSurfaceProvider(previewView.surfaceProvider)
                 }
 
+            val analyzerInstance = BarcodeAnalyzer(
+                previewView = previewView,
+                scanWindowWidthFactor = scanWindowWidthFactor,
+                scanWindowHeightFactor = scanWindowHeightFactor,
+                enableImageCapture = enableImageCapture,
+                allowDuplicate = allowDuplicate,
+                duplicateDelay = duplicateDelay,
+                supportedFormats = supportedFormats,
+                rejectBlurryImages = rejectBlurryImages,
+                blurThreshold = blurThreshold,
+                executor = SafeExecutor(cameraExecutor),
+                onBarcodeDetected = { results ->
+                    ContextCompat.getMainExecutor(context).execute {
+                        plugin.eventSink?.success(
+                            mapOf(
+                                "type" to "scanned",
+                                "data" to results
+                            )
+                        )
+                    }
+                }
+            )
+            analyzer = analyzerInstance
+
             val imageAnalysis = ImageAnalysis.Builder()
                 .setResolutionSelector(resolutionSelector)
                 .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
                 .setTargetRotation(initialRotation)
                 .build()
                 .also {
-                    it.setAnalyzer(cameraExecutor, BarcodeAnalyzer(
-                        previewView = previewView,
-                        scanWindowWidthFactor = scanWindowWidthFactor,
-                        scanWindowHeightFactor = scanWindowHeightFactor,
-                        enableImageCapture = enableImageCapture,
-                        allowDuplicate = allowDuplicate,
-                        duplicateDelay = duplicateDelay,
-                        supportedFormats = supportedFormats,
-                        executor = cameraExecutor,
-                        onBarcodeDetected = { results ->
-                            ContextCompat.getMainExecutor(context).execute {
-                                plugin.eventSink?.success(
-                                    mapOf(
-                                        "type" to "scanned",
-                                        "data" to results
-                                    )
-                                )
-                            }
-                        }
-                    ))
+                    it.setAnalyzer(cameraExecutor, analyzerInstance)
                 }
 
             displayListener?.let { displayManager.unregisterDisplayListener(it) }
@@ -179,6 +194,8 @@ class ScannerPlatformView(
 
     fun pause() {
         cameraProvider?.unbindAll()
+        analyzer?.close()
+        analyzer = null
     }
 
     fun resume() {
@@ -187,6 +204,8 @@ class ScannerPlatformView(
 
     fun stop() {
         cameraProvider?.unbindAll()
+        analyzer?.close()
+        analyzer = null
     }
 
     fun toggleFlash(): Boolean {

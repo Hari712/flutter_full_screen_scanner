@@ -78,8 +78,11 @@ dependencies {
     implementation("androidx.camera:camera-view:$cameraxVersion")
     
     // ML Kit
-    implementation("com.google.mlkit:barcode-scanning:17.2.0")
+    implementation("com.google.mlkit:barcode-scanning:17.3.0")
     
     testImplementation("org.jetbrains.kotlin:kotlin-test")
     testImplementation("org.mockito:mockito-core:5.0.0")
+    testImplementation("org.robolectric:robolectric:4.11.1")
+    testImplementation("junit:junit:4.13.2")
+    testImplementation("org.junit.vintage:junit-vintage-engine:5.10.1")
 }

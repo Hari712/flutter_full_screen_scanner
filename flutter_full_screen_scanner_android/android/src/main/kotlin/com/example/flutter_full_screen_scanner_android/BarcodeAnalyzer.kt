@@ -48,10 +48,11 @@ fun mapStringToFormat(formatStr: String): Int? {
     }
 }
 
-private data class ScanData(
+internal data class ScanData(
     val value: String,
     val format: Int,
     val corners: List<Map<String, Double>>,
+    val rawCorners: List<android.graphics.Point>,
     val isNewScan: Boolean
 )
 
@@ -63,15 +64,13 @@ class BarcodeAnalyzer(
     private val allowDuplicate: Boolean = false,
     private val duplicateDelay: Long = 1500L,
     private val supportedFormats: List<String>? = null,
+    private val rejectBlurryImages: Boolean = false,
+    private val blurThreshold: Double = 35.0,
     private val executor: java.util.concurrent.Executor,
     private val onBarcodeDetected: (List<Map<String, Any?>>) -> Unit
 ) : ImageAnalysis.Analyzer {
 
-    private val scanner: BarcodeScanner
-    private val scannedCache = mutableMapOf<String, Long>()
-    private val compressionExecutor = java.util.concurrent.Executors.newCachedThreadPool()
-
-    init {
+    private val scanner: BarcodeScanner by lazy {
         val builder = BarcodeScannerOptions.Builder()
         val mlFormats = supportedFormats?.mapNotNull { mapStringToFormat(it) }
         if (mlFormats != null && mlFormats.isNotEmpty()) {
@@ -83,7 +82,22 @@ class BarcodeAnalyzer(
         } else {
             builder.setBarcodeFormats(Barcode.FORMAT_ALL_FORMATS)
         }
-        scanner = BarcodeScanning.getClient(builder.build())
+        BarcodeScanning.getClient(builder.build())
+    }
+    private val scannedCache = mutableMapOf<String, Long>()
+    private val compressionExecutor = java.util.concurrent.Executors.newCachedThreadPool()
+
+    fun close() {
+        try {
+            scanner.close()
+        } catch (e: Exception) {
+            // Ignored
+        }
+        try {
+            compressionExecutor.shutdown()
+        } catch (e: Exception) {
+            // Ignored
+        }
     }
 
     @SuppressLint("UnsafeOptInUsageError")
@@ -123,28 +137,12 @@ class BarcodeAnalyzer(
                                 val cornersList = barcode.cornerPoints ?: continue
                                 if (cornersList.size < 4) continue
 
-                                // Map points to upright space using the rotation matrix.
-                                val uprightCorners = cornersList.map { point ->
-                                    val pts = floatArrayOf(point.x.toFloat(), point.y.toFloat())
-                                    matrix.mapPoints(pts)
-                                    android.graphics.PointF(pts[0], pts[1])
-                                }
+                                 // ML Kit corner points are already in the upright display-oriented space.
+                                 val uprightCorners = cornersList.map { point ->
+                                     android.graphics.PointF(point.x.toFloat(), point.y.toFloat())
+                                 }
 
-                                // 1. Check if barcode is cut off by the sensor boundaries (which causes wrong text extraction)
-                                val borderMarginX = imgWidth * 0.015f // 1.5% margin
-                                val borderMarginY = imgHeight * 0.015f // 1.5% margin
-                                val isCutOff = uprightCorners.any { point ->
-                                    point.x < borderMarginX || 
-                                    point.y < borderMarginY || 
-                                    point.x > imgWidth - borderMarginX || 
-                                    point.y > imgHeight - borderMarginY
-                                }
-                                if (isCutOff) {
-                                    android.util.Log.d("BarcodeAnalyzer", "Barcode skipped (cut off by sensor boundaries): $value")
-                                    continue // Skip since the barcode is cut off
-                                }
-
-                                // 2. Check scan window if set
+                                // 1. Check scan window if set using centroid (center point) to match Dart-side calculation
                                 if (scanWindowWidthFactor != null && scanWindowHeightFactor != null) {
                                     val pvWidth = previewView?.width?.toFloat() ?: 0f
                                     val pvHeight = previewView?.height?.toFloat() ?: 0f
@@ -156,23 +154,28 @@ class BarcodeAnalyzer(
                                          val dx = (imgWidth.toFloat() * scale - pvWidth) / 2f
                                          val dy = (imgHeight.toFloat() * scale - pvHeight) / 2f
 
-                                         val xMin = 0.5 - scanWindowWidthFactor / 2.0
-                                         val xMax = 0.5 + scanWindowWidthFactor / 2.0
-                                         val yMin = 0.5 - scanWindowHeightFactor / 2.0
-                                         val yMax = 0.5 + scanWindowHeightFactor / 2.0
+                                         val wFactor = if (scanWindowWidthFactor.isInfinite() || scanWindowWidthFactor.isNaN()) 1.0 else scanWindowWidthFactor.coerceIn(0.0, 1.0)
+                                         val hFactor = if (scanWindowHeightFactor.isInfinite() || scanWindowHeightFactor.isNaN()) 1.0 else scanWindowHeightFactor.coerceIn(0.0, 1.0)
+                                         val xMin = 0.5 - wFactor / 2.0
+                                         val xMax = 0.5 + wFactor / 2.0
+                                         val yMin = 0.5 - hFactor / 2.0
+                                         val yMax = 0.5 + hFactor / 2.0
 
                                          if (uprightCorners.isNotEmpty()) {
-                                             // Ensure all corners are fully inside the scan window to prevent partial/half-visible scans
-                                             val allInside = uprightCorners.all { point ->
-                                                 val px = point.x * scale - dx
-                                                 val py = point.y * scale - dy
-                                                 val nx = px / pvWidth
-                                                 val ny = py / pvHeight
-                                                 nx >= xMin && nx <= xMax && ny >= yMin && ny <= yMax
-                                             }
-                                             if (!allInside) {
-                                                 android.util.Log.d("BarcodeAnalyzer", "Barcode skipped (not inside scan window): $value")
-                                                 continue // Skip since the barcode is not fully inside the scan window
+                                             val sumX = uprightCorners.map { it.x }.sum()
+                                             val sumY = uprightCorners.map { it.y }.sum()
+                                             val cx = sumX / uprightCorners.size
+                                             val cy = sumY / uprightCorners.size
+                                             
+                                             val px = cx * scale - dx
+                                             val py = cy * scale - dy
+                                             val nx = px / pvWidth
+                                             val ny = py / pvHeight
+                                             
+                                             val inside = nx >= xMin && nx <= xMax && ny >= yMin && ny <= yMax
+                                             android.util.Log.d("BarcodeAnalyzer", "ScanWindow check: value=$value, cx=$cx, cy=$cy, nx=$nx, ny=$ny, xRange=[$xMin, $xMax], yRange=[$yMin, $yMax], inside=$inside")
+                                             if (!inside) {
+                                                 continue // Skip since the barcode is not inside the scan window
                                              }
                                          }
                                      }
@@ -198,14 +201,43 @@ class BarcodeAnalyzer(
                                     value = value,
                                     format = barcode.format,
                                     corners = corners,
+                                    rawCorners = cornersList.toList(),
                                     isNewScan = isNewScan
                                 ))
                             }
 
                             if (scanDataList.isNotEmpty()) {
                                 val needsImageCapture = enableImageCapture && scanDataList.any { it.isNewScan }
+                                var sharpness: Double? = null
+                                var isBlurry = false
 
-                                if (needsImageCapture) {
+                                if (needsImageCapture && rejectBlurryImages) {
+                                    try {
+                                        val mediaImage = imageProxy.image
+                                        if (mediaImage != null && mediaImage.format == android.graphics.ImageFormat.YUV_420_888) {
+                                            val newScans = scanDataList.filter { it.isNewScan }
+                                            val roi = computeUnionBoundingBox(newScans, imageProxy.width, imageProxy.height)
+                                            if (roi != null) {
+                                                val roiArea = (roi.width() * roi.height()).toDouble()
+                                                val totalArea = (imageProxy.width * imageProxy.height).toDouble()
+                                                if (roiArea > 0 && roiArea / totalArea <= 0.8) {
+                                                    sharpness = computeLaplacianVariance(imageProxy.planes[0], roi)
+                                                    if (sharpness != null) {
+                                                        isBlurry = sharpness < blurThreshold
+                                                    }
+                                                } else {
+                                                    android.util.Log.d("BarcodeAnalyzer", "ROI area ratio ${roiArea/totalArea} exceeds 80%, skipping blur check")
+                                                }
+                                            }
+                                        }
+                                    } catch (e: Throwable) {
+                                        android.util.Log.e("BarcodeAnalyzer", "Error computing blur score", e)
+                                    }
+                                }
+
+                                val actualCapture = needsImageCapture && !isBlurry
+
+                                if (actualCapture) {
                                     try {
                                         rawBitmap = imageProxy.toBitmap()
                                         uprightBitmap = android.graphics.Bitmap.createBitmap(
@@ -243,7 +275,9 @@ class BarcodeAnalyzer(
                                                 "imageWidth" to outWidth,
                                                 "imageHeight" to outHeight,
                                                 "imageBytes" to if (data.isNewScan) imageBytes else null,
-                                                "timestamp" to currentTime
+                                                "timestamp" to currentTime,
+                                                "imageRejected" to (data.isNewScan && isBlurry),
+                                                "sharpnessScore" to sharpness
                                             )
                                         }
                                         onBarcodeDetected(results)
@@ -257,7 +291,9 @@ class BarcodeAnalyzer(
                                             "imageWidth" to imgWidth,
                                             "imageHeight" to imgHeight,
                                             "imageBytes" to null,
-                                            "timestamp" to currentTime
+                                            "timestamp" to currentTime,
+                                            "imageRejected" to (data.isNewScan && isBlurry),
+                                            "sharpnessScore" to sharpness
                                         )
                                     }
                                     onBarcodeDetected(results)
@@ -280,4 +316,158 @@ class BarcodeAnalyzer(
             imageProxy.close()
         }
     }
+
+    internal fun computeUnionBoundingBox(newScans: List<ScanData>, imgWidth: Int, imgHeight: Int): android.graphics.Rect? {
+        if (newScans.isEmpty()) return null
+        var minX = imgWidth
+        var maxX = 0
+        var minY = imgHeight
+        var maxY = 0
+        var hasPoints = false
+
+        for (scan in newScans) {
+            for (pt in scan.rawCorners) {
+                if (pt.x < minX) minX = pt.x
+                if (pt.x > maxX) maxX = pt.x
+                if (pt.y < minY) minY = pt.y
+                if (pt.y > maxY) maxY = pt.y
+                hasPoints = true
+            }
+        }
+        if (!hasPoints) return null
+
+        // Add 10% padding
+        val width = maxX - minX
+        val height = maxY - minY
+        val padX = (width * 0.10f).toInt().coerceAtLeast(10)
+        val padY = (height * 0.10f).toInt().coerceAtLeast(10)
+
+        minX = (minX - padX).coerceIn(0, imgWidth - 1)
+        maxX = (maxX + padX).coerceIn(0, imgWidth - 1)
+        minY = (minY - padY).coerceIn(0, imgHeight - 1)
+        maxY = (maxY + padY).coerceIn(0, imgHeight - 1)
+
+        if (maxX - minX < 20 || maxY - minY < 20) {
+            // Under minimum size floor (20x20 = 400px)
+            return null
+        }
+
+        return android.graphics.Rect(minX, minY, maxX, maxY)
+    }
+
+    internal fun computeLaplacianVariance(
+        yPlane: androidx.camera.core.ImageProxy.PlaneProxy,
+        roi: android.graphics.Rect
+    ): Double? {
+        val buffer = yPlane.buffer
+        val rowStride = yPlane.rowStride
+        val pixelStride = yPlane.pixelStride
+
+        var roiWidth = roi.width()
+        var roiHeight = roi.height()
+
+        // 1. Extract the ROI pixel data into a flat Yuv/Luma byte array (or IntArray)
+        var pixels = IntArray(roiWidth * roiHeight)
+        buffer.position(0)
+        for (y in 0 until roiHeight) {
+            val rowStart = (roi.top + y) * rowStride
+            for (x in 0 until roiWidth) {
+                val offset = rowStart + (roi.left + x) * pixelStride
+                if (offset < buffer.capacity()) {
+                    pixels[y * roiWidth + x] = buffer.get(offset).toInt() and 0xFF
+                } else {
+                    pixels[y * roiWidth + x] = 0
+                }
+            }
+        }
+
+        // 2. Low Light / Sensor Noise Mitigation: compute mean luma first
+        var lumaSum = 0L
+        for (p in pixels) {
+            lumaSum += p
+        }
+        val meanLuma = lumaSum.toDouble() / pixels.size
+        if (meanLuma < 40.0) {
+            android.util.Log.d("BarcodeAnalyzer", "Low light detected (mean luma: $meanLuma < 40.0), skipping blur rejection")
+            return null
+        }
+
+        // 3. Max ROI Downsampling cap
+        val maxPixelsCeiling = 62500
+        while (roiWidth * roiHeight > maxPixelsCeiling && roiWidth >= 4 && roiHeight >= 4) {
+            val newWidth = roiWidth / 2
+            val newHeight = roiHeight / 2
+            val downsampled = IntArray(newWidth * newHeight)
+            for (y in 0 until newHeight) {
+                for (x in 0 until newWidth) {
+                    val p00 = pixels[(y * 2) * roiWidth + (x * 2)]
+                    val p01 = pixels[(y * 2) * roiWidth + (x * 2 + 1)]
+                    val p10 = pixels[(y * 2 + 1) * roiWidth + (x * 2)]
+                    val p11 = pixels[(y * 2 + 1) * roiWidth + (x * 2 + 1)]
+                    downsampled[y * newWidth + x] = (p00 + p01 + p10 + p11) / 4
+                }
+            }
+            pixels = downsampled
+            roiWidth = newWidth
+            roiHeight = newHeight
+        }
+
+        // 4. Cheap 3x3 box blur (noise pre-pass)
+        val blurredPixels = IntArray(roiWidth * roiHeight)
+        for (y in 0 until roiHeight) {
+            for (x in 0 until roiWidth) {
+                if (y == 0 || y == roiHeight - 1 || x == 0 || x == roiWidth - 1) {
+                    blurredPixels[y * roiWidth + x] = pixels[y * roiWidth + x]
+                } else {
+                    var sum = 0
+                    for (ky in -1..1) {
+                        for (kx in -1..1) {
+                            sum += pixels[(y + ky) * roiWidth + (x + kx)]
+                        }
+                    }
+                    blurredPixels[y * roiWidth + x] = sum / 9
+                }
+            }
+        }
+        pixels = blurredPixels
+
+        // 5. Laplacian kernel [[0, 1, 0], [1, -4, 1], [0, 1, 0]]
+        var sumLaplacian = 0.0
+        var sumLaplacianSq = 0.0
+        var count = 0
+
+        for (y in 1 until roiHeight - 1) {
+            val idx = y * roiWidth
+            for (x in 1 until roiWidth - 1) {
+                val center = pixels[idx + x]
+                val left = pixels[idx + x - 1]
+                val right = pixels[idx + x + 1]
+                val up = pixels[idx - roiWidth + x]
+                val down = pixels[idx + roiWidth + x]
+
+                // Laplacian response
+                val lap = (up + down + left + right - 4 * center).toDouble()
+                sumLaplacian += lap
+                sumLaplacianSq += lap * lap
+                count++
+            }
+        }
+
+        if (count == 0) return null
+
+        val mean = sumLaplacian / count
+        val variance = (sumLaplacianSq / count) - (mean * mean)
+        return variance
+    }
 }
+
+class SafeExecutor(private val delegate: java.util.concurrent.Executor) : java.util.concurrent.Executor {
+    override fun execute(command: Runnable) {
+        try {
+            delegate.execute(command)
+        } catch (e: java.util.concurrent.RejectedExecutionException) {
+            // Ignored: The executor has been shut down, so we discard any pending callbacks.
+        }
+    }
+}
+

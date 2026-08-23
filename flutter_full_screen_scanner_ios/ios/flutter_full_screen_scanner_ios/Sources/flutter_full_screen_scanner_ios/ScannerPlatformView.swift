@@ -64,13 +64,17 @@ class ScannerPlatformView: NSObject, FlutterPlatformView, AVCaptureVideoDataOutp
     private var enableImageCapture: Bool = true
     private var scanWindowWidthFactor: Double? = nil
     private var scanWindowHeightFactor: Double? = nil
+    private var rejectBlurryImages: Bool = false
+    private var blurThreshold: Double = 35.0
     
     private var videoDevice: AVCaptureDevice?
     private var subjectAreaChangeObserver: NSObjectProtocol?
     private var imagesCurrentlyBeingProcessed = false
     
-    // Cached orientation state
+    // Cached orientation and size state
     private var cachedCGImageOrientation: CGImagePropertyOrientation = .right
+    private var cachedViewWidth: Double = 0.0
+    private var cachedViewHeight: Double = 0.0
     private let orientationLock = NSLock()
 
     init(
@@ -97,6 +101,12 @@ class ScannerPlatformView: NSObject, FlutterPlatformView, AVCaptureVideoDataOutp
             }
             if let swHeight = params["scanWindowHeightFactor"] as? Double {
                 self.scanWindowHeightFactor = swHeight
+            }
+            if let rejectBlurry = params["rejectBlurryImages"] as? Bool {
+                self.rejectBlurryImages = rejectBlurry
+            }
+            if let threshold = params["blurThreshold"] as? Double {
+                self.blurThreshold = threshold
             }
         }
         
@@ -240,35 +250,15 @@ class ScannerPlatformView: NSObject, FlutterPlatformView, AVCaptureVideoDataOutp
                 let imgWidth = isPortrait ? pHeight : pWidth
                 let imgHeight = isPortrait ? pWidth : pHeight
                 
-                // Crop and generate JPEG bytes in the background thread (since CIContext is CPU/GPU intensive)
-                var imageBytes: FlutterStandardTypedData? = nil
-                if self.enableImageCapture {
-                    let ciContext = CIContext()
-                    let ciImage = CIImage(cvPixelBuffer: pixelBuffer).oriented(cgOrientation)
-                    if let cgImage = ciContext.createCGImage(ciImage, from: ciImage.extent) {
-                        let uiImage = UIImage(cgImage: cgImage)
-                        if let jpegData = uiImage.jpegData(compressionQuality: 0.8) {
-                            imageBytes = FlutterStandardTypedData(bytes: jpegData)
-                        }
-                    }
-                }
+                // Thread-safely get cached view width/height
+                self.orientationLock.lock()
+                let viewWidth = self.cachedViewWidth
+                let viewHeight = self.cachedViewHeight
+                self.orientationLock.unlock()
                 
-                // Dispatch to main thread to perform UIKit bounds lookup and fire eventSink safely
-                DispatchQueue.main.async { [weak self] in
-                    guard let self = self else { return }
-                    defer {
-                        self.imagesCurrentlyBeingProcessed = false
-                    }
-                    
-                    let bounds = self._view.bounds
-                    let viewWidth = Double(bounds.width)
-                    let viewHeight = Double(bounds.height)
-                    
-                    guard viewWidth > 0 && viewHeight > 0 else { return }
-                    
-                    var finalResults: [[String: Any]] = []
-                    
-                    // Map from Vision's uncropped normalized output space to screen preview aspect-fill space
+                var acceptedEntries: [(observation: VNBarcodeObservation, stringValue: String, imageCorners: [[String: Double]])] = []
+                
+                if viewWidth > 0 && viewHeight > 0 {
                     let scaleX = viewWidth / imgWidth
                     let scaleY = viewHeight / imgHeight
                     let scale = max(scaleX, scaleY)
@@ -278,21 +268,14 @@ class ScannerPlatformView: NSObject, FlutterPlatformView, AVCaptureVideoDataOutp
                     for observation in observations {
                         guard let stringValue = observation.payloadStringValue else { continue }
                         
-                        // Map normalized coordinates from Vision (origin bottom-left) directly to upright image space coordinates:
-                        // pt.x = normX * imgWidth
-                        // pt.y = (1.0 - normY) * imgHeight (to invert bottom-left to top-left)
                         let rawCorners = [observation.topLeft, observation.topRight, observation.bottomRight, observation.bottomLeft]
-                        
                         let imageCorners = rawCorners.map { point -> [String: Double] in
                             let imgX = point.x * imgWidth
                             let imgY = (1.0 - point.y) * imgHeight
                             return ["x": imgX, "y": imgY]
                         }
-                        
                         if imageCorners.count < 4 { continue }
                         
-                        // Project to screen preview coordinates using direct aspect-fill math (same as Dart side)
-                        // for native scan window validation check
                         let screenCorners = rawCorners.map { point -> CGPoint in
                             let px = point.x * imgWidth * scale - dx
                             let py = (1.0 - point.y) * imgHeight * scale - dy
@@ -301,45 +284,138 @@ class ScannerPlatformView: NSObject, FlutterPlatformView, AVCaptureVideoDataOutp
                         
                         // Native Scan Window Containment Check
                         if let swWidth = self.scanWindowWidthFactor, let swHeight = self.scanWindowHeightFactor {
-                            let xMin = 0.5 - swWidth / 2.0
-                            let xMax = 0.5 + swWidth / 2.0
-                            let yMin = 0.5 - swHeight / 2.0
-                            let yMax = 0.5 + swHeight / 2.0
+                            let wFactor = (swWidth.isInfinite || swWidth.isNaN) ? 1.0 : max(0.0, min(1.0, swWidth))
+                            let hFactor = (swHeight.isInfinite || swHeight.isNaN) ? 1.0 : max(0.0, min(1.0, swHeight))
+                            let xMin = 0.5 - wFactor / 2.0
+                            let xMax = 0.5 + wFactor / 2.0
+                            let yMin = 0.5 - hFactor / 2.0
+                            let yMax = 0.5 + hFactor / 2.0
                             
-                            // Ensure all corners are fully inside the scan window to prevent partial/half-visible scans
-                            let allInside = screenCorners.allSatisfy { pt in
-                                let normX = Double(pt.x) / viewWidth
-                                let normY = Double(pt.y) / viewHeight
-                                return normX >= xMin && normX <= xMax && normY >= yMin && normY <= yMax
-                            }
+                            let sumX = screenCorners.map { Double($0.x) }.reduce(0, +)
+                            let sumY = screenCorners.map { Double($0.y) }.reduce(0, +)
+                            let cx = sumX / Double(screenCorners.count)
+                            let cy = sumY / Double(screenCorners.count)
                             
-                            if !allInside {
-                                continue // Skip barcode that is not fully inside the scan window
-                            }
+                            let normX = cx / viewWidth
+                            let normY = cy / viewHeight
+                            
+                            let inside = normX >= xMin && normX <= xMax && normY >= yMin && normY <= yMax
+                            if !inside { continue }
                         }
                         
                         // Duplicate prevention
+                        var isNewScan = true
                         if (!self.allowDuplicate) {
                             if let lastScanTime = self.scannedCache[stringValue], (currentTime - lastScanTime) < Double(self.duplicateDelay) {
-                                continue
+                                isNewScan = false
                             }
                         }
                         
+                        if !self.allowDuplicate && !isNewScan {
+                            continue
+                        }
+                        
+                        acceptedEntries.append((observation: observation, stringValue: stringValue, imageCorners: imageCorners))
+                    }
+                }
+                
+                if acceptedEntries.isEmpty {
+                    self.imagesCurrentlyBeingProcessed = false
+                    return
+                }
+
+                // Now we perform the blur check (if enabled) and JPEG capture
+                var imageBytes: FlutterStandardTypedData? = nil
+                var sharpness: Double? = nil
+                var isBlurry = false
+                
+                if self.enableImageCapture {
+                    let ciContext = CIContext()
+                    let ciImage = CIImage(cvPixelBuffer: pixelBuffer).oriented(cgOrientation)
+                    if let cgImage = ciContext.createCGImage(ciImage, from: ciImage.extent) {
+                        
+                        if self.rejectBlurryImages {
+                            // Compute bounding box crop rect of accepted barcodes
+                            var minX = imgWidth
+                            var maxX = 0.0
+                            var minY = imgHeight
+                            var maxY = 0.0
+                            for entry in acceptedEntries {
+                                for pt in entry.imageCorners {
+                                    guard let x = pt["x"], let y = pt["y"] else { continue }
+                                    if x < minX { minX = x }
+                                    if x > maxX { maxX = x }
+                                    if y < minY { minY = y }
+                                    if y > maxY { maxY = y }
+                                }
+                            }
+                            
+                            let w = maxX - minX
+                            let h = maxY - minY
+                            let padX = max(w * 0.10, 10.0)
+                            let padY = max(h * 0.10, 10.0)
+                            
+                            let roiRect = CGRect(
+                                x: max(minX - padX, 0.0),
+                                y: max(minY - padY, 0.0),
+                                width: min(w + padX * 2, imgWidth - max(minX - padX, 0.0)),
+                                height: min(h + padY * 2, imgHeight - max(minY - padY, 0.0))
+                            )
+                            
+                            let roiArea = Double(roiRect.width * roiRect.height)
+                            let totalArea = imgWidth * imgHeight
+                            
+                            if roiArea > 0 && roiArea / totalArea <= 0.8 && roiRect.width >= 20 && roiRect.height >= 20 {
+                                if let croppedCgImage = cgImage.cropping(to: roiRect) {
+                                    sharpness = Self.laplacianVariance(cgImage: croppedCgImage)
+                                    if let sh = sharpness {
+                                        isBlurry = sh < self.blurThreshold
+                                    }
+                                }
+                            } else {
+                                print("[ScannerPlatformView] ROI area ratio \(roiArea/totalArea) exceeds 80% or ROI size < 20x20, skipping blur check")
+                            }
+                        }
+                        
+                        if !isBlurry {
+                            let uiImage = UIImage(cgImage: cgImage)
+                            if let jpegData = uiImage.jpegData(compressionQuality: 0.8) {
+                                imageBytes = FlutterStandardTypedData(bytes: jpegData)
+                            }
+                        }
+                    }
+                }
+                
+                // Dispatch to main thread to perform UI-thread updates and fire eventSink safely
+                DispatchQueue.main.async { [weak self] in
+                    guard let self = self else { return }
+                    defer {
+                        self.imagesCurrentlyBeingProcessed = false
+                    }
+                    
+                    var finalResults: [[String: Any]] = []
+                    
+                    for entry in acceptedEntries {
+                        let stringValue = entry.stringValue
                         self.scannedCache[stringValue] = currentTime
                         
-                        let barcodeType = self.mapVisionSymbologyToMetadataType(observation.symbology)
+                        let barcodeType = self.mapVisionSymbologyToMetadataType(entry.observation.symbology)
                         
                         var result: [String: Any] = [
                             "value": stringValue,
                             "type": barcodeType,
                             "timestamp": Int(currentTime),
-                            "corners": imageCorners, // Report coordinates in uncropped upright image space
+                            "corners": entry.imageCorners,
                             "imageWidth": Int(imgWidth),
-                            "imageHeight": Int(imgHeight)
+                            "imageHeight": Int(imgHeight),
+                            "imageRejected": isBlurry
                         ]
                         
                         if let bytes = imageBytes {
                             result["imageBytes"] = bytes
+                        }
+                        if let sh = sharpness {
+                            result["sharpnessScore"] = sh
                         }
                         
                         finalResults.append(result)
@@ -507,8 +583,114 @@ class ScannerPlatformView: NSObject, FlutterPlatformView, AVCaptureVideoDataOutp
         @unknown default: cgOrientation = .right
         }
         
+        let bounds = _view.bounds
+        let viewWidth = Double(bounds.width)
+        let viewHeight = Double(bounds.height)
+        
         self.orientationLock.lock()
         self.cachedCGImageOrientation = cgOrientation
+        self.cachedViewWidth = viewWidth
+        self.cachedViewHeight = viewHeight
         self.orientationLock.unlock()
+    }
+    
+    static func laplacianVariance(cgImage: CGImage) -> Double? {
+        let width = cgImage.width
+        let height = cgImage.height
+        
+        var roiWidth = width
+        var roiHeight = height
+        
+        // 1. Draw CGImage into an 8-bit grayscale bitmap context
+        let colorSpace = CGColorSpaceCreateDeviceGray()
+        var pixels = [UInt8](repeating: 0, count: roiWidth * roiHeight)
+        guard let context = CGContext(
+            data: &pixels,
+            width: roiWidth,
+            height: roiHeight,
+            bitsPerComponent: 8,
+            bytesPerRow: roiWidth,
+            space: colorSpace,
+            bitmapInfo: CGImageAlphaInfo.none.rawValue
+        ) else { return nil }
+        
+        context.draw(cgImage, in: CGRect(x: 0, y: 0, width: roiWidth, height: roiHeight))
+        
+        // 2. Low Light / Sensor Noise Mitigation: compute mean luma first
+        var lumaSum: Int64 = 0
+        for p in pixels {
+            lumaSum += Int64(p)
+        }
+        let meanLuma = Double(lumaSum) / Double(pixels.count)
+        if meanLuma < 40.0 {
+            print("[ScannerPlatformView] Low light detected (mean luma: \(meanLuma) < 40.0), skipping blur rejection")
+            return nil
+        }
+        
+        // 3. Max ROI Downsampling cap (62500 px ceiling)
+        let maxPixelsCeiling = 62500
+        while roiWidth * roiHeight > maxPixelsCeiling && roiWidth >= 4 && roiHeight >= 4 {
+            let newWidth = roiWidth / 2
+            let newHeight = roiHeight / 2
+            var downsampled = [UInt8](repeating: 0, count: newWidth * newHeight)
+            for y in 0..<newHeight {
+                for x in 0..<newWidth {
+                    let p00 = Int(pixels[(y * 2) * roiWidth + (x * 2)])
+                    let p01 = Int(pixels[(y * 2) * roiWidth + (x * 2 + 1)])
+                    let p10 = Int(pixels[(y * 2 + 1) * roiWidth + (x * 2)])
+                    let p11 = Int(pixels[(y * 2 + 1) * roiWidth + (x * 2 + 1)])
+                    downsampled[y * newWidth + x] = UInt8((p00 + p01 + p10 + p11) / 4)
+                }
+            }
+            pixels = downsampled
+            roiWidth = newWidth
+            roiHeight = newHeight
+        }
+        
+        // 4. Cheap 3x3 box blur (noise pre-pass)
+        var blurredPixels = [UInt8](repeating: 0, count: roiWidth * roiHeight)
+        for y in 0..<roiHeight {
+            for x in 0..<roiWidth {
+                if y == 0 || y == roiHeight - 1 || x == 0 || x == roiWidth - 1 {
+                    blurredPixels[y * roiWidth + x] = pixels[y * roiWidth + x]
+                } else {
+                    var sum = 0
+                    for ky in -1...1 {
+                        for kx in -1...1 {
+                            sum += Int(pixels[(y + ky) * roiWidth + (x + kx)])
+                        }
+                    }
+                    blurredPixels[y * roiWidth + x] = UInt8(sum / 9)
+                }
+            }
+        }
+        pixels = blurredPixels
+        
+        // 5. Laplacian kernel [[0, 1, 0], [1, -4, 1], [0, 1, 0]]
+        var sumLaplacian: Double = 0.0
+        var sumLaplacianSq: Double = 0.0
+        var count = 0
+        
+        for y in 1..<(roiHeight - 1) {
+            let idx = y * roiWidth
+            for x in 1..<(roiWidth - 1) {
+                let center = Int(pixels[idx + x])
+                let left = Int(pixels[idx + x - 1])
+                let right = Int(pixels[idx + x + 1])
+                let up = Int(pixels[idx - roiWidth + x])
+                let down = Int(pixels[idx + roiWidth + x])
+                
+                let lap = Double(up + down + left + right - 4 * center)
+                sumLaplacian += lap
+                sumLaplacianSq += lap * lap
+                count += 1
+            }
+        }
+        
+        if count == 0 { return nil }
+        
+        let mean = sumLaplacian / Double(count)
+        let variance = (sumLaplacianSq / Double(count)) - (mean * mean)
+        return variance
     }
 }

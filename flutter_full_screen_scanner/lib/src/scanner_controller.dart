@@ -75,6 +75,8 @@ class ScannerController extends ChangeNotifier {
                   imageHeight: item['imageHeight'] as int?,
                   imageBytes: item['imageBytes'] as Uint8List?,
                   corners: corners,
+                  imageRejected: item['imageRejected'] as bool? ?? false,
+                  sharpnessScore: (item['sharpnessScore'] as num?)?.toDouble(),
                 );
                 _eventController.add(
                   ScannerEvent(type: ScannerEventType.scanned, data: result),
