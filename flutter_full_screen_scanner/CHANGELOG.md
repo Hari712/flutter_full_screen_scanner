@@ -1,3 +1,8 @@
+## 1.1.1
+
+- **FIX**: resolve Android camera preview lag by processing ML Kit barcode scanning synchronously on the analyzer thread. This ensures correct frame backpressure handling and avoids buffer starvation.
+- **CHORE**: bump `flutter_full_screen_scanner_android` dependency to `^1.1.1`.
+
 ## 1.1.0
 
  - **FIX**(android): resolve memory leak/crash by recycling bitmaps in BarcodeAnalyzer & bump to v1.0.9.

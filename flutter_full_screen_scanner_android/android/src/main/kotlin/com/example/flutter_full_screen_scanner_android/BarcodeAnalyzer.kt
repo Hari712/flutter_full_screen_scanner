@@ -10,6 +10,8 @@ import com.google.mlkit.vision.barcode.BarcodeScanning
 import com.google.mlkit.vision.barcode.common.Barcode
 import com.google.mlkit.vision.common.InputImage
 
+import com.google.android.gms.tasks.Tasks
+
 fun mapBarcodeFormat(format: Int): String {
     return when (format) {
         Barcode.FORMAT_CODE_128 -> "org.ansi.Code128"
@@ -108,211 +110,227 @@ class BarcodeAnalyzer(
             return
         }
 
+        var rawBitmap: android.graphics.Bitmap? = null
+        var uprightBitmap: android.graphics.Bitmap? = null
         try {
             val rotation = imageProxy.imageInfo.rotationDegrees.toFloat()
             val image = InputImage.fromMediaImage(mediaImage, imageProxy.imageInfo.rotationDegrees)
             
-            scanner.process(image)
-                .addOnSuccessListener(executor) { barcodes ->
-                    var rawBitmap: android.graphics.Bitmap? = null
-                    var uprightBitmap: android.graphics.Bitmap? = null
-                    try {
-                        if (barcodes.isNotEmpty()) {
-                            android.util.Log.d("BarcodeAnalyzer", "Detected ${barcodes.size} barcodes")
-                            val currentTime = System.currentTimeMillis()
-                            val scanDataList = mutableListOf<ScanData>()
+            // Perform synchronous scanning to leverage CameraX's KEEP_ONLY_LATEST strategy.
+            // This prevents frame processing backlog and avoids camera buffer/preview starvation.
+            val barcodes = Tasks.await(scanner.process(image))
 
-                            // Matrix to rotate raw sensor bitmap into upright display orientation
-                            val matrix = android.graphics.Matrix()
-                            matrix.postRotate(rotation)
-                            val rectF = android.graphics.RectF(0f, 0f, imageProxy.width.toFloat(), imageProxy.height.toFloat())
-                            matrix.mapRect(rectF)
-                            matrix.postTranslate(-rectF.left, -rectF.top)
+            if (barcodes.isNotEmpty()) {
+                android.util.Log.d("BarcodeAnalyzer", "Detected ${barcodes.size} barcodes")
+                val currentTime = System.currentTimeMillis()
+                val scanDataList = mutableListOf<ScanData>()
 
-                            val imgWidth = rectF.width().toInt()
-                            val imgHeight = rectF.height().toInt()
+                // Matrix to rotate raw sensor bitmap into upright display orientation
+                val matrix = android.graphics.Matrix()
+                matrix.postRotate(rotation)
+                val rectF = android.graphics.RectF(0f, 0f, imageProxy.width.toFloat(), imageProxy.height.toFloat())
+                matrix.mapRect(rectF)
+                matrix.postTranslate(-rectF.left, -rectF.top)
 
-                            for (barcode in barcodes) {
-                                val value = barcode.rawValue ?: continue
-                                val cornersList = barcode.cornerPoints ?: continue
-                                if (cornersList.size < 4) continue
+                val imgWidth = rectF.width().toInt()
+                val imgHeight = rectF.height().toInt()
 
-                                 // ML Kit corner points are already in the upright display-oriented space.
-                                 val uprightCorners = cornersList.map { point ->
-                                     android.graphics.PointF(point.x.toFloat(), point.y.toFloat())
+                for (barcode in barcodes) {
+                    val value = barcode.rawValue ?: continue
+                    val cornersList = barcode.cornerPoints ?: continue
+                    if (cornersList.size < 4) continue
+
+                     // ML Kit corner points are already in the upright display-oriented space.
+                     val uprightCorners = cornersList.map { point ->
+                         android.graphics.PointF(point.x.toFloat(), point.y.toFloat())
+                     }
+
+                    // 1. Check scan window if set using centroid (center point) to match Dart-side calculation
+                    if (scanWindowWidthFactor != null && scanWindowHeightFactor != null) {
+                        val pvWidth = previewView?.width?.toFloat() ?: 0f
+                        val pvHeight = previewView?.height?.toFloat() ?: 0f
+
+                         if (pvWidth > 0f && pvHeight > 0f) {
+                             val scaleX = pvWidth / imgWidth.toFloat()
+                             val scaleY = pvHeight / imgHeight.toFloat()
+                             val scale = Math.max(scaleX, scaleY)
+                             val dx = (imgWidth.toFloat() * scale - pvWidth) / 2f
+                             val dy = (imgHeight.toFloat() * scale - pvHeight) / 2f
+
+                             val wFactor = if (scanWindowWidthFactor.isInfinite() || scanWindowWidthFactor.isNaN()) 1.0 else scanWindowWidthFactor.coerceIn(0.0, 1.0)
+                             val hFactor = if (scanWindowHeightFactor.isInfinite() || scanWindowHeightFactor.isNaN()) 1.0 else scanWindowHeightFactor.coerceIn(0.0, 1.0)
+                             val xMin = 0.5 - wFactor / 2.0
+                             val xMax = 0.5 + wFactor / 2.0
+                             val yMin = 0.5 - hFactor / 2.0
+                             val yMax = 0.5 + hFactor / 2.0
+
+                             if (uprightCorners.isNotEmpty()) {
+                                 val sumX = uprightCorners.map { it.x }.sum()
+                                 val sumY = uprightCorners.map { it.y }.sum()
+                                 val cx = sumX / uprightCorners.size
+                                 val cy = sumY / uprightCorners.size
+                                 
+                                 val px = cx * scale - dx
+                                 val py = cy * scale - dy
+                                 val nx = px / pvWidth
+                                 val ny = py / pvHeight
+                                 
+                                 val inside = nx >= xMin && nx <= xMax && ny >= yMin && ny <= yMax
+                                 android.util.Log.d("BarcodeAnalyzer", "ScanWindow check: value=$value, cx=$cx, cy=$cy, nx=$nx, ny=$ny, xRange=[$xMin, $xMax], yRange=[$yMin, $yMax], inside=$inside")
+                                 if (!inside) {
+                                     continue // Skip since the barcode is not inside the scan window
+                                 }
+                             }
+                         }
+                    }
+
+                    val lastScanTime = scannedCache[value]
+                    val isNewScan = lastScanTime == null || (currentTime - lastScanTime) >= duplicateDelay
+
+                    if (!allowDuplicate && !isNewScan) {
+                        continue // Skip duplicate
+                    }
+
+                    if (isNewScan) {
+                        scannedCache[value] = currentTime
+                    }
+
+                    // ML Kit cornerPoints match the upright photo coordinates 1:1
+                    val corners = uprightCorners.map { point ->
+                        mapOf("x" to point.x.toDouble(), "y" to point.y.toDouble())
+                    }
+
+                    scanDataList.add(ScanData(
+                        value = value,
+                        format = barcode.format,
+                        corners = corners,
+                        rawCorners = cornersList.toList(),
+                        isNewScan = isNewScan
+                    ))
+                }
+
+                if (scanDataList.isNotEmpty()) {
+                    val needsImageCapture = enableImageCapture && scanDataList.any { it.isNewScan }
+                    var sharpness: Double? = null
+                    var isBlurry = false
+
+                    if (needsImageCapture && rejectBlurryImages) {
+                        try {
+                            val mediaImage = imageProxy.image
+                            if (mediaImage != null && mediaImage.format == android.graphics.ImageFormat.YUV_420_888) {
+                                val newScans = scanDataList.filter { it.isNewScan }
+                                val roi = computeUnionBoundingBox(newScans, imageProxy.width, imageProxy.height)
+                                if (roi != null) {
+                                    val roiArea = (roi.width() * roi.height()).toDouble()
+                                    val totalArea = (imageProxy.width * imageProxy.height).toDouble()
+                                    if (roiArea > 0 && roiArea / totalArea <= 0.8) {
+                                        sharpness = computeLaplacianVariance(imageProxy.planes[0], roi)
+                                        if (sharpness != null) {
+                                            isBlurry = sharpness < blurThreshold
+                                        }
+                                    } else {
+                                        android.util.Log.d("BarcodeAnalyzer", "ROI area ratio ${roiArea/totalArea} exceeds 80%, skipping blur check")
+                                    }
+                                }
+                            }
+                        } catch (e: Throwable) {
+                            android.util.Log.e("BarcodeAnalyzer", "Error computing blur score", e)
+                        }
+                    }
+
+                    val actualCapture = needsImageCapture && !isBlurry
+
+                    if (actualCapture) {
+                        try {
+                            rawBitmap = imageProxy.toBitmap()
+                            uprightBitmap = android.graphics.Bitmap.createBitmap(
+                                rawBitmap, 0, 0, rawBitmap.width, rawBitmap.height, matrix, true
+                            )
+                        } catch (e: Throwable) {
+                            // Ignore fallback
+                        }
+                    }
+
+                     if (uprightBitmap != null) {
+                         val bitmapToCompress = uprightBitmap
+                         val outWidth = uprightBitmap.width
+                         val outHeight = uprightBitmap.height
+
+                         try {
+                             compressionExecutor.execute {
+                                 var imageBytes: ByteArray? = null
+                                 try {
+                                     val stream = java.io.ByteArrayOutputStream()
+                                     bitmapToCompress.compress(android.graphics.Bitmap.CompressFormat.JPEG, 80, stream)
+                                     imageBytes = stream.toByteArray()
+                                 } catch (e: Throwable) {
+                                     // Compression error
+                                 } finally {
+                                     try {
+                                         bitmapToCompress.recycle()
+                                     } catch (e: Exception) {}
                                  }
 
-                                // 1. Check scan window if set using centroid (center point) to match Dart-side calculation
-                                if (scanWindowWidthFactor != null && scanWindowHeightFactor != null) {
-                                    val pvWidth = previewView?.width?.toFloat() ?: 0f
-                                    val pvHeight = previewView?.height?.toFloat() ?: 0f
-
-                                     if (pvWidth > 0f && pvHeight > 0f) {
-                                         val scaleX = pvWidth / imgWidth.toFloat()
-                                         val scaleY = pvHeight / imgHeight.toFloat()
-                                         val scale = Math.max(scaleX, scaleY)
-                                         val dx = (imgWidth.toFloat() * scale - pvWidth) / 2f
-                                         val dy = (imgHeight.toFloat() * scale - pvHeight) / 2f
-
-                                         val wFactor = if (scanWindowWidthFactor.isInfinite() || scanWindowWidthFactor.isNaN()) 1.0 else scanWindowWidthFactor.coerceIn(0.0, 1.0)
-                                         val hFactor = if (scanWindowHeightFactor.isInfinite() || scanWindowHeightFactor.isNaN()) 1.0 else scanWindowHeightFactor.coerceIn(0.0, 1.0)
-                                         val xMin = 0.5 - wFactor / 2.0
-                                         val xMax = 0.5 + wFactor / 2.0
-                                         val yMin = 0.5 - hFactor / 2.0
-                                         val yMax = 0.5 + hFactor / 2.0
-
-                                         if (uprightCorners.isNotEmpty()) {
-                                             val sumX = uprightCorners.map { it.x }.sum()
-                                             val sumY = uprightCorners.map { it.y }.sum()
-                                             val cx = sumX / uprightCorners.size
-                                             val cy = sumY / uprightCorners.size
-                                             
-                                             val px = cx * scale - dx
-                                             val py = cy * scale - dy
-                                             val nx = px / pvWidth
-                                             val ny = py / pvHeight
-                                             
-                                             val inside = nx >= xMin && nx <= xMax && ny >= yMin && ny <= yMax
-                                             android.util.Log.d("BarcodeAnalyzer", "ScanWindow check: value=$value, cx=$cx, cy=$cy, nx=$nx, ny=$ny, xRange=[$xMin, $xMax], yRange=[$yMin, $yMax], inside=$inside")
-                                             if (!inside) {
-                                                 continue // Skip since the barcode is not inside the scan window
-                                             }
-                                         }
-                                     }
-                                }
-
-                                val lastScanTime = scannedCache[value]
-                                val isNewScan = lastScanTime == null || (currentTime - lastScanTime) >= duplicateDelay
-
-                                if (!allowDuplicate && !isNewScan) {
-                                    continue // Skip duplicate
-                                }
-
-                                if (isNewScan) {
-                                    scannedCache[value] = currentTime
-                                }
-
-                                // ML Kit cornerPoints match the upright photo coordinates 1:1
-                                val corners = uprightCorners.map { point ->
-                                    mapOf("x" to point.x.toDouble(), "y" to point.y.toDouble())
-                                }
-
-                                scanDataList.add(ScanData(
-                                    value = value,
-                                    format = barcode.format,
-                                    corners = corners,
-                                    rawCorners = cornersList.toList(),
-                                    isNewScan = isNewScan
-                                ))
-                            }
-
-                            if (scanDataList.isNotEmpty()) {
-                                val needsImageCapture = enableImageCapture && scanDataList.any { it.isNewScan }
-                                var sharpness: Double? = null
-                                var isBlurry = false
-
-                                if (needsImageCapture && rejectBlurryImages) {
-                                    try {
-                                        val mediaImage = imageProxy.image
-                                        if (mediaImage != null && mediaImage.format == android.graphics.ImageFormat.YUV_420_888) {
-                                            val newScans = scanDataList.filter { it.isNewScan }
-                                            val roi = computeUnionBoundingBox(newScans, imageProxy.width, imageProxy.height)
-                                            if (roi != null) {
-                                                val roiArea = (roi.width() * roi.height()).toDouble()
-                                                val totalArea = (imageProxy.width * imageProxy.height).toDouble()
-                                                if (roiArea > 0 && roiArea / totalArea <= 0.8) {
-                                                    sharpness = computeLaplacianVariance(imageProxy.planes[0], roi)
-                                                    if (sharpness != null) {
-                                                        isBlurry = sharpness < blurThreshold
-                                                    }
-                                                } else {
-                                                    android.util.Log.d("BarcodeAnalyzer", "ROI area ratio ${roiArea/totalArea} exceeds 80%, skipping blur check")
-                                                }
-                                            }
-                                        }
-                                    } catch (e: Throwable) {
-                                        android.util.Log.e("BarcodeAnalyzer", "Error computing blur score", e)
-                                    }
-                                }
-
-                                val actualCapture = needsImageCapture && !isBlurry
-
-                                if (actualCapture) {
-                                    try {
-                                        rawBitmap = imageProxy.toBitmap()
-                                        uprightBitmap = android.graphics.Bitmap.createBitmap(
-                                            rawBitmap, 0, 0, rawBitmap.width, rawBitmap.height, matrix, true
-                                        )
-                                    } catch (e: Throwable) {
-                                        // Ignore fallback
-                                    }
-                                }
-
-                                if (uprightBitmap != null) {
-                                    val bitmapToCompress = uprightBitmap
-                                    val outWidth = uprightBitmap.width
-                                    val outHeight = uprightBitmap.height
-
-                                    compressionExecutor.execute {
-                                        var imageBytes: ByteArray? = null
-                                        try {
-                                            val stream = java.io.ByteArrayOutputStream()
-                                            bitmapToCompress.compress(android.graphics.Bitmap.CompressFormat.JPEG, 80, stream)
-                                            imageBytes = stream.toByteArray()
-                                        } catch (e: Throwable) {
-                                            // Compression error
-                                        } finally {
-                                            try {
-                                                bitmapToCompress.recycle()
-                                            } catch (e: Exception) {}
-                                        }
-
-                                        val results = scanDataList.map { data ->
-                                            mapOf(
-                                                "value" to data.value,
-                                                "type" to mapBarcodeFormat(data.format),
-                                                "corners" to data.corners,
-                                                "imageWidth" to outWidth,
-                                                "imageHeight" to outHeight,
-                                                "imageBytes" to if (data.isNewScan) imageBytes else null,
-                                                "timestamp" to currentTime,
-                                                "imageRejected" to (data.isNewScan && isBlurry),
-                                                "sharpnessScore" to sharpness
-                                            )
-                                        }
-                                        onBarcodeDetected(results)
-                                    }
-                                } else {
-                                    val results = scanDataList.map { data ->
-                                        mapOf(
-                                            "value" to data.value,
-                                            "type" to mapBarcodeFormat(data.format),
-                                            "corners" to data.corners,
-                                            "imageWidth" to imgWidth,
-                                            "imageHeight" to imgHeight,
-                                            "imageBytes" to null,
-                                            "timestamp" to currentTime,
-                                            "imageRejected" to (data.isNewScan && isBlurry),
-                                            "sharpnessScore" to sharpness
-                                        )
-                                    }
-                                    onBarcodeDetected(results)
-                                }
-                            }
-                        }
-                    } catch (e: Throwable) {
-                        // Avoid crashes in success listener
-                    } finally {
-                        rawBitmap?.recycle()
-                    }
+                                 val results = scanDataList.map { data ->
+                                     mapOf(
+                                         "value" to data.value,
+                                         "type" to mapBarcodeFormat(data.format),
+                                         "corners" to data.corners,
+                                         "imageWidth" to outWidth,
+                                         "imageHeight" to outHeight,
+                                         "imageBytes" to if (data.isNewScan) imageBytes else null,
+                                         "timestamp" to currentTime,
+                                         "imageRejected" to (data.isNewScan && isBlurry),
+                                         "sharpnessScore" to sharpness
+                                     )
+                                 }
+                                 onBarcodeDetected(results)
+                             }
+                         } catch (e: java.util.concurrent.RejectedExecutionException) {
+                             try {
+                                 bitmapToCompress.recycle()
+                             } catch (ex: Exception) {}
+                             val results = scanDataList.map { data ->
+                                 mapOf(
+                                     "value" to data.value,
+                                     "type" to mapBarcodeFormat(data.format),
+                                     "corners" to data.corners,
+                                     "imageWidth" to outWidth,
+                                     "imageHeight" to outHeight,
+                                     "imageBytes" to null,
+                                     "timestamp" to currentTime,
+                                     "imageRejected" to (data.isNewScan && isBlurry),
+                                     "sharpnessScore" to sharpness
+                                 )
+                             }
+                             onBarcodeDetected(results)
+                         }
+                     } else {
+                         val results = scanDataList.map { data ->
+                             mapOf(
+                                 "value" to data.value,
+                                 "type" to mapBarcodeFormat(data.format),
+                                 "corners" to data.corners,
+                                 "imageWidth" to imgWidth,
+                                 "imageHeight" to imgHeight,
+                                 "imageBytes" to null,
+                                 "timestamp" to currentTime,
+                                 "imageRejected" to (data.isNewScan && isBlurry),
+                                 "sharpnessScore" to sharpness
+                             )
+                         }
+                         onBarcodeDetected(results)
+                     }
                 }
-                .addOnFailureListener(executor) {
-                    android.util.Log.e("BarcodeAnalyzer", "ML Kit barcode scanning failed", it)
-                }
-                .addOnCompleteListener(executor) {
-                    imageProxy.close()
-                }
+            }
         } catch (e: Throwable) {
+            android.util.Log.e("BarcodeAnalyzer", "Error processing image frame", e)
+        } finally {
+            if (rawBitmap != null && rawBitmap != uprightBitmap) {
+                try {
+                    rawBitmap.recycle()
+                } catch (e: Exception) {}
+            }
             imageProxy.close()
         }
     }
