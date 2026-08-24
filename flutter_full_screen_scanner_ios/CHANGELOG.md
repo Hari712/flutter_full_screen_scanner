@@ -1,3 +1,7 @@
+## 1.1.1
+
+- **CHORE**: Bump version to 1.1.1 for platform implementation consistency and release.
+
 ## 1.1.0
 
  - **FIX**(android): resolve memory leak/crash by recycling bitmaps in BarcodeAnalyzer & bump to v1.0.9.
