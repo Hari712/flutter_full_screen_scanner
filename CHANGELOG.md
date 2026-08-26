@@ -3,6 +3,37 @@
 All notable changes to this project will be documented in this file.
 See [Conventional Commits](https://conventionalcommits.org) for commit guidelines.
 
+## 2026-08-26
+
+### Changes
+
+---
+
+Packages with other changes:
+
+ - [`flutter_full_screen_scanner` - `v1.1.2`](#flutter_full_screen_scanner---v112)
+ - [`flutter_full_screen_scanner_android` - `v1.1.2`](#flutter_full_screen_scanner_android---v112)
+ - [`flutter_full_screen_scanner_ios` - `v1.1.2`](#flutter_full_screen_scanner_ios---v112)
+ - [`flutter_full_screen_scanner_platform_interface` - `v1.1.2`](#flutter_full_screen_scanner_platform_interface---v112)
+
+---
+
+#### `flutter_full_screen_scanner` - `v1.1.2`
+
+ - **PERF**: throttle MLKit barcode frame analysis to 150ms interval (~6.6 scans per second) to resolve high CPU usage, device heating, and camera preview lag on Android devices.
+
+#### `flutter_full_screen_scanner_android` - `v1.1.2`
+
+ - **PERF**: throttle MLKit barcode frame analysis to 150ms interval (~6.6 scans per second) to resolve high CPU usage, device heating, and camera preview lag on Android devices.
+
+#### `flutter_full_screen_scanner_ios` - `v1.1.2`
+
+ - **CHORE**: Bump version to 1.1.2 for release consistency.
+
+#### `flutter_full_screen_scanner_platform_interface` - `v1.1.2`
+
+ - **CHORE**: Bump version to 1.1.2 for release consistency.
+
 ## 2026-08-23
 
 ### Changes

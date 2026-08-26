@@ -1,3 +1,7 @@
+## 1.1.2
+
+- **CHORE**: Bump version to 1.1.2 for release consistency.
+
 ## 1.1.1
 
 - **CHORE**: Bump version to 1.1.1 for platform implementation consistency and release.

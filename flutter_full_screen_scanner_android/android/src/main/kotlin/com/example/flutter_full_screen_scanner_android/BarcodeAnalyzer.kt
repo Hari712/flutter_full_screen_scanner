@@ -88,6 +88,7 @@ class BarcodeAnalyzer(
     }
     private val scannedCache = mutableMapOf<String, Long>()
     private val compressionExecutor = java.util.concurrent.Executors.newCachedThreadPool()
+    private var lastAnalysisTimestamp = 0L
 
     fun close() {
         try {
@@ -104,11 +105,19 @@ class BarcodeAnalyzer(
 
     @SuppressLint("UnsafeOptInUsageError")
     override fun analyze(imageProxy: ImageProxy) {
+        val currentTime = System.currentTimeMillis()
+        if (currentTime - lastAnalysisTimestamp < 150) { // Limit to ~6.6 scans per second
+            imageProxy.close()
+            return
+        }
+
         val mediaImage = imageProxy.image
         if (mediaImage == null) {
             imageProxy.close()
             return
         }
+
+        lastAnalysisTimestamp = currentTime
 
         var rawBitmap: android.graphics.Bitmap? = null
         var uprightBitmap: android.graphics.Bitmap? = null

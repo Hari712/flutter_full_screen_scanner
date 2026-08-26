@@ -1,7 +1,14 @@
+## 1.1.2
+
+- **PERF**: throttle MLKit barcode frame analysis to 150ms interval (~6.6 scans per second) to resolve high CPU usage, device heating, and camera preview lag on Android devices.
+- **CHORE**: bump `flutter_full_screen_scanner_android` dependency to `^1.1.2`, `flutter_full_screen_scanner_ios` to `^1.1.2`, and `flutter_full_screen_scanner_platform_interface` to `^1.1.2`.
+
+
 ## 1.1.1
 
 - **FIX**: resolve Android camera preview lag by processing ML Kit barcode scanning synchronously on the analyzer thread. This ensures correct frame backpressure handling and avoids buffer starvation.
 - **CHORE**: bump `flutter_full_screen_scanner_android` dependency to `^1.1.1`.
+
 
 ## 1.1.0
 
