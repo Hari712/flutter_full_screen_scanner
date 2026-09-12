@@ -68,6 +68,8 @@ class ScannerPlatformView: NSObject, FlutterPlatformView, AVCaptureVideoDataOutp
     private var blurThreshold: Double = 35.0
     /// nil = no cap; set via maxExposureDurationSeconds to trade low-light brightness for less motion blur.
     private var maxExposureDurationSeconds: Double? = nil
+    /// Empty = all formats (default); non-empty = Vision restricted to only these symbologies.
+    private var configuredSymbologies: [VNBarcodeSymbology] = []
 
     private var videoDevice: AVCaptureDevice?
     private var subjectAreaChangeObserver: NSObjectProtocol?
@@ -112,6 +114,9 @@ class ScannerPlatformView: NSObject, FlutterPlatformView, AVCaptureVideoDataOutp
             }
             if let maxExp = params["maxExposureDurationSeconds"] as? Double {
                 self.maxExposureDurationSeconds = maxExp
+            }
+            if let formats = params["supportedFormats"] as? [String] {
+                self.configuredSymbologies = ScannerPlatformView.symbologiesFromFormatNames(formats)
             }
         }
         
@@ -400,7 +405,9 @@ class ScannerPlatformView: NSObject, FlutterPlatformView, AVCaptureVideoDataOutp
                 }
             }
             
-            request.symbologies = [.code128, .qr, .ean8, .ean13, .pdf417, .code39, .code93, .itf14, .dataMatrix, .aztec]
+            request.symbologies = self.configuredSymbologies.isEmpty
+                ? [.code128, .qr, .ean8, .ean13, .pdf417, .code39, .code93, .itf14, .dataMatrix, .aztec]
+                : self.configuredSymbologies
             do {
                 try requestHandler.perform([request])
             } catch {
@@ -410,6 +417,26 @@ class ScannerPlatformView: NSObject, FlutterPlatformView, AVCaptureVideoDataOutp
         }
     }
     
+    // Maps Dart BarcodeFormat enum names (lowercased) to VNBarcodeSymbology; unknown names are silently dropped.
+    private static func symbologiesFromFormatNames(_ names: [String]) -> [VNBarcodeSymbology] {
+        if names.contains(where: { $0.lowercased() == "allformats" }) { return [] }
+        return names.compactMap { name -> VNBarcodeSymbology? in
+            switch name.lowercased() {
+            case "code128":    return .code128
+            case "code39":     return .code39
+            case "code93":     return .code93
+            case "datamatrix": return .dataMatrix
+            case "ean13":      return .ean13
+            case "ean8":       return .ean8
+            case "itf":        return .itf14
+            case "qrcode":     return .qr
+            case "pdf417":     return .pdf417
+            case "aztec":      return .aztec
+            default:           return nil
+            }
+        }
+    }
+
     private func mapVisionSymbologyToMetadataType(_ symbology: VNBarcodeSymbology) -> String {
         switch symbology {
         case .code128: return AVMetadataObject.ObjectType.code128.rawValue
