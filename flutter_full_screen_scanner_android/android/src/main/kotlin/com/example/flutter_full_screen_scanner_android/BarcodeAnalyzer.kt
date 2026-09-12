@@ -426,13 +426,13 @@ class BarcodeAnalyzer(
         }
         if (!hasPoints) return null
 
-        // Generous padding: ~45% horizontal padding and expanded vertical padding (at least ~95% of width or 120% of height) to ensure the captured image includes plenty of surrounding product/label context.
+        // Generous padding: ~80% horizontal padding and expanded vertical padding (at least ~120% of barcode width or 35% of frame height) to capture a large, high-context crop similar to full scan window view.
         val width = maxX - minX
         val height = maxY - minY
-        val padX = (width * 0.45f).toInt().coerceAtLeast(35)
-        val minDesiredHeight = (width * 0.95f).toInt()
-        val totalHeightWithPad = Math.max(height + (height * 1.20f).toInt(), minDesiredHeight)
-        val padY = Math.max((totalHeightWithPad - height) / 2, 45)
+        val padX = Math.max((width * 0.80f), (imgWidth * 0.15f)).toInt().coerceAtLeast(60)
+        val minDesiredHeight = Math.max((width * 1.20f), (imgHeight * 0.35f)).toInt()
+        val totalHeightWithPad = Math.max(height + (height * 3.0f).toInt(), minDesiredHeight)
+        val padY = Math.max((totalHeightWithPad - height) / 2, 60)
 
         minX = (minX - padX).coerceIn(0, imgWidth - 1)
         maxX = (maxX + padX).coerceIn(0, imgWidth - 1)
