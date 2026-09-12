@@ -75,6 +75,9 @@ class ScannerPlatformView: NSObject, FlutterPlatformView, AVCaptureVideoDataOutp
     private var scanIntervalMs: Double = 50.0
     private var lastAnalysisTimestamp: TimeInterval = 0
     private var confidenceThreshold: Double = 0.0
+    private var requireConsecutiveMatches: Int = 1
+    // Keyed by symbology; resets when a different value is decoded for that format or the entry goes stale.
+    private var consecutiveStreaks: [VNBarcodeSymbology: (value: String, count: Int, lastSeenAt: TimeInterval)] = [:]
     
     // Cached orientation and size state
     private var cachedCGImageOrientation: CGImagePropertyOrientation = .right
@@ -118,6 +121,9 @@ class ScannerPlatformView: NSObject, FlutterPlatformView, AVCaptureVideoDataOutp
             }
             if let confidence = params["confidenceThreshold"] as? Double {
                 self.confidenceThreshold = confidence
+            }
+            if let consec = params["requireConsecutiveMatches"] as? Int {
+                self.requireConsecutiveMatches = consec
             }
         }
         
@@ -340,6 +346,15 @@ class ScannerPlatformView: NSObject, FlutterPlatformView, AVCaptureVideoDataOutp
                             continue
                         }
                         
+                        if self.requireConsecutiveMatches > 1 && Self.isWeakChecksumSymbology(observation.symbology) {
+                            let prev = self.consecutiveStreaks[observation.symbology]
+                            let stale = prev != nil && (currentTime - prev!.lastSeenAt) > (self.scanIntervalMs * 3.0)
+                            let newCount = (!stale && prev?.value == stringValue) ? prev!.count + 1 : 1
+                            self.consecutiveStreaks[observation.symbology] = (value: stringValue, count: newCount, lastSeenAt: currentTime)
+                            if newCount < self.requireConsecutiveMatches { continue }
+                            self.consecutiveStreaks.removeValue(forKey: observation.symbology)
+                        }
+                        
                         acceptedEntries.append((observation: observation, stringValue: stringValue, imageCorners: imageCorners))
                     }
                 }
@@ -422,6 +437,14 @@ class ScannerPlatformView: NSObject, FlutterPlatformView, AVCaptureVideoDataOutp
         }
     }
     
+    // Code 39, ITF-14, and Codabar lack strong checksums; all other Vision symbologies are excluded from this gate.
+    private static func isWeakChecksumSymbology(_ symbology: VNBarcodeSymbology) -> Bool {
+        if #available(iOS 15.0, *) {
+            if symbology == .codaBar { return true }
+        }
+        return symbology == .code39 || symbology == .itf14
+    }
+
     // Maps Dart BarcodeFormat enum names (lowercased) to VNBarcodeSymbology; unknown names are silently dropped.
     private static func symbologiesFromFormatNames(_ names: [String]) -> [VNBarcodeSymbology] {
         if names.contains(where: { $0.lowercased() == "allformats" }) { return [] }

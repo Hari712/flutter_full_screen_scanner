@@ -41,6 +41,7 @@ class _ScannerViewState extends State<ScannerView> {
       'minConfirmations': widget.options.minConfirmations,
       'scanInterval': widget.options.scanInterval,
       'confidenceThreshold': widget.options.confidenceThreshold,
+      'requireConsecutiveMatches': widget.options.requireConsecutiveMatches,
       if (widget.options.maxExposureDurationSeconds != null)
         'maxExposureDurationSeconds': widget.options.maxExposureDurationSeconds!,
       if (widget.options.scanWindow != null) ...{

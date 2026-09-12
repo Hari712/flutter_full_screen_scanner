@@ -68,6 +68,7 @@ class BarcodeAnalyzer(
     private val rejectBlurryImages: Boolean = false,
     private val blurThreshold: Double = 35.0,
     private val minConfirmations: Int = 2,
+    private val requireConsecutiveMatches: Int = 1,
     private val scanInterval: Long = 50L,
     private val executor: java.util.concurrent.Executor,
     private val onBarcodeDetected: (List<Map<String, Any?>>) -> Unit
@@ -91,6 +92,8 @@ class BarcodeAnalyzer(
     private val candidateDetections = mutableMapOf<String, MutableList<Long>>()
     private class BlurryState(var count: Int, var lastSeen: Long)
     private val blurryAttempts = mutableMapOf<String, BlurryState>()
+    private data class ConsecutiveStreak(val value: String, val count: Int, val lastSeenMs: Long)
+    private val consecutiveStreaks = mutableMapOf<String, ConsecutiveStreak>()
     private val compressionExecutor = java.util.concurrent.Executors.newFixedThreadPool(2)
     private var lastAnalysisTimestamp = 0L
 
@@ -211,6 +214,16 @@ class BarcodeAnalyzer(
                             continue // Skip until we have enough confirmations
                         }
                         candidateDetections.remove(value)
+                    }
+
+                    if (requireConsecutiveMatches > 1 && isWeakChecksumFormat(barcode.format)) {
+                        val key = barcode.format.toString()
+                        val prev = consecutiveStreaks[key]
+                        val stale = prev != null && (currentTime - prev.lastSeenMs) > (scanInterval * 3L)
+                        val newCount = if (!stale && prev?.value == value) prev.count + 1 else 1
+                        consecutiveStreaks[key] = ConsecutiveStreak(value, newCount, currentTime)
+                        if (newCount < requireConsecutiveMatches) continue
+                        consecutiveStreaks.remove(key)
                     }
 
                     // ML Kit cornerPoints match the upright photo coordinates 1:1
@@ -389,6 +402,10 @@ class BarcodeAnalyzer(
             releaseFrame()
         }
     }
+
+    // Code 39, ITF, and Codabar lack strong checksums; QR/EAN/UPC/DataMatrix/PDF417/Aztec are excluded from this gate.
+    private fun isWeakChecksumFormat(format: Int): Boolean =
+        format == Barcode.FORMAT_CODE_39 || format == Barcode.FORMAT_ITF || format == Barcode.FORMAT_CODABAR
 
     internal fun computeUnionBoundingBox(newScans: List<ScanData>, imgWidth: Int, imgHeight: Int): android.graphics.Rect? {
         if (newScans.isEmpty()) return null

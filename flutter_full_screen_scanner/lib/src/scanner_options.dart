@@ -85,6 +85,9 @@ class ScannerOptions {
   final double blurThreshold;
   final int minConfirmations;
 
+  /// Require this many consecutive analyzed-frame matches before firing for weak-checksum formats (Code 39, ITF, Codabar). `1` = off (default).
+  final int requireConsecutiveMatches;
+
   /// iOS only; clamps auto-exposure duration to trade low-light brightness for less motion blur. `null` = no cap.
   final double? maxExposureDurationSeconds;
 
@@ -109,6 +112,7 @@ class ScannerOptions {
     this.rejectBlurryImages = false,
     this.blurThreshold = 35.0,
     this.minConfirmations = 2,
+    this.requireConsecutiveMatches = 1,
     this.maxExposureDurationSeconds,
   });
 

@@ -42,6 +42,7 @@ class ScannerPlatformView(
     private var blurThreshold: Double = 35.0
     private var minConfirmations: Int = 2
     private var scanInterval: Long = 50L
+    private var requireConsecutiveMatches: Int = 1
     private var displayListener: android.hardware.display.DisplayManager.DisplayListener? = null
 
     init {
@@ -56,6 +57,7 @@ class ScannerPlatformView(
         rejectBlurryImages = params?.get("rejectBlurryImages") as? Boolean ?: false
         blurThreshold = (params?.get("blurThreshold") as? Number)?.toDouble() ?: 35.0
         minConfirmations = (params?.get("minConfirmations") as? Number)?.toInt() ?: 2
+        requireConsecutiveMatches = (params?.get("requireConsecutiveMatches") as? Number)?.toInt() ?: 1
         val intervalRaw = params?.get("scanInterval")
         scanInterval = (intervalRaw as? Number)?.toLong() ?: 50L
 
@@ -154,6 +156,7 @@ class ScannerPlatformView(
                 rejectBlurryImages = rejectBlurryImages,
                 blurThreshold = blurThreshold,
                 minConfirmations = minConfirmations,
+                requireConsecutiveMatches = requireConsecutiveMatches,
                 scanInterval = scanInterval,
                 executor = SafeExecutor(cameraExecutor),
                 onBarcodeDetected = { results ->
