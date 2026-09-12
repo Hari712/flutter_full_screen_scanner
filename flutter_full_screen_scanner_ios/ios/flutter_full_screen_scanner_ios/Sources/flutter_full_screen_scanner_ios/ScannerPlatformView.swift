@@ -324,66 +324,24 @@ class ScannerPlatformView: NSObject, FlutterPlatformView, AVCaptureVideoDataOutp
                     return
                 }
 
-                // Now we perform the blur check (if enabled) and JPEG capture
+                // Direct JPEG capture without Laplacian blur rejection
                 var imageBytes: FlutterStandardTypedData? = nil
-                var sharpness: Double? = nil
-                var isBlurry = false
                 
                 if self.enableImageCapture {
                     let ciContext = CIContext()
                     let ciImage = CIImage(cvPixelBuffer: pixelBuffer).oriented(cgOrientation)
                     if let cgImage = ciContext.createCGImage(ciImage, from: ciImage.extent) {
-                        
-                        if self.rejectBlurryImages {
-                            // Compute bounding box crop rect of accepted barcodes
-                            var minX = imgWidth
-                            var maxX = 0.0
-                            var minY = imgHeight
-                            var maxY = 0.0
-                            for entry in acceptedEntries {
-                                for pt in entry.imageCorners {
-                                    guard let x = pt["x"], let y = pt["y"] else { continue }
-                                    if x < minX { minX = x }
-                                    if x > maxX { maxX = x }
-                                    if y < minY { minY = y }
-                                    if y > maxY { maxY = y }
-                                }
-                            }
-                            
-                            let w = maxX - minX
-                            let h = maxY - minY
-                            let padX = max(w * 0.10, 10.0)
-                            let padY = max(h * 0.10, 10.0)
-                            
-                            let roiRect = CGRect(
-                                x: max(minX - padX, 0.0),
-                                y: max(minY - padY, 0.0),
-                                width: min(w + padX * 2, imgWidth - max(minX - padX, 0.0)),
-                                height: min(h + padY * 2, imgHeight - max(minY - padY, 0.0))
-                            )
-                            
-                            let roiArea = Double(roiRect.width * roiRect.height)
-                            let totalArea = imgWidth * imgHeight
-                            
-                            if roiArea > 0 && roiArea / totalArea <= 0.8 && roiRect.width >= 20 && roiRect.height >= 20 {
-                                if let croppedCgImage = cgImage.cropping(to: roiRect) {
-                                    sharpness = Self.laplacianVariance(cgImage: croppedCgImage)
-                                    if let sh = sharpness {
-                                        isBlurry = sh < self.blurThreshold
-                                    }
-                                }
-                            } else {
-                                print("[ScannerPlatformView] ROI area ratio \(roiArea/totalArea) exceeds 80% or ROI size < 20x20, skipping blur check")
-                            }
-                        }
-                        
-                        if !isBlurry {
-                            let uiImage = UIImage(cgImage: cgImage)
-                            if let jpegData = uiImage.jpegData(compressionQuality: 0.8) {
-                                imageBytes = FlutterStandardTypedData(bytes: jpegData)
-                            }
+                        let uiImage = UIImage(cgImage: cgImage)
+                        if let jpegData = uiImage.jpegData(compressionQuality: 0.8) {
+                            imageBytes = FlutterStandardTypedData(bytes: jpegData)
                         }
                     }
+                }
+                
+                let finalAcceptedEntries = acceptedEntries
+                if finalAcceptedEntries.isEmpty {
+                    self.imagesCurrentlyBeingProcessed = false
+                    return
                 }
                 
                 // Dispatch to main thread to perform UI-thread updates and fire eventSink safely
@@ -395,7 +353,7 @@ class ScannerPlatformView: NSObject, FlutterPlatformView, AVCaptureVideoDataOutp
                     
                     var finalResults: [[String: Any]] = []
                     
-                    for entry in acceptedEntries {
+                    for entry in finalAcceptedEntries {
                         let stringValue = entry.stringValue
                         self.scannedCache[stringValue] = currentTime
                         
@@ -408,14 +366,11 @@ class ScannerPlatformView: NSObject, FlutterPlatformView, AVCaptureVideoDataOutp
                             "corners": entry.imageCorners,
                             "imageWidth": Int(imgWidth),
                             "imageHeight": Int(imgHeight),
-                            "imageRejected": isBlurry
+                            "imageRejected": false
                         ]
                         
                         if let bytes = imageBytes {
                             result["imageBytes"] = bytes
-                        }
-                        if let sh = sharpness {
-                            result["sharpnessScore"] = sh
                         }
                         
                         finalResults.append(result)

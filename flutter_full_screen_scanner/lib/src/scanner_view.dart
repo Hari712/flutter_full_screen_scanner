@@ -38,6 +38,8 @@ class _ScannerViewState extends State<ScannerView> {
           widget.options.supportedFormats.map((f) => f.name).toList(),
       'rejectBlurryImages': widget.options.rejectBlurryImages,
       'blurThreshold': widget.options.blurThreshold,
+      'minConfirmations': widget.options.minConfirmations,
+      'scanInterval': widget.options.scanInterval,
       if (widget.options.scanWindow != null) ...{
         'scanWindowWidthFactor': widget.options.scanWindow!.widthFactor,
         'scanWindowHeightFactor': widget.options.scanWindow!.heightFactor,

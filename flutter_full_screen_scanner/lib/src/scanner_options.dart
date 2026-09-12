@@ -80,6 +80,7 @@ class ScannerOptions {
   final double confidenceThreshold; // 0.0 to 1.0
   final bool rejectBlurryImages;
   final double blurThreshold;
+  final int minConfirmations;
 
   const ScannerOptions({
     this.scanMode = ScanMode.barcode,
@@ -93,7 +94,7 @@ class ScannerOptions {
     this.enableImageAnnotation = true,
     this.allowDuplicate = false,
     this.duplicateDelay = 1500,
-    this.scanInterval = 100,
+    this.scanInterval = 50,
     this.supportedFormats = const [BarcodeFormat.allFormats],
     this.scanWindow,
     this.autoZoom = true,
@@ -101,6 +102,7 @@ class ScannerOptions {
     this.confidenceThreshold = 0.5,
     this.rejectBlurryImages = false,
     this.blurThreshold = 35.0,
+    this.minConfirmations = 2,
   });
 
   /// Maps the public Dart API to the Pigeon-generated data classes.

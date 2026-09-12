@@ -34,6 +34,8 @@ class ScannerPlatformView(
     private var supportedFormats: List<String>? = null
     private var rejectBlurryImages: Boolean = false
     private var blurThreshold: Double = 35.0
+    private var minConfirmations: Int = 2
+    private var scanInterval: Long = 50L
     private var displayListener: android.hardware.display.DisplayManager.DisplayListener? = null
 
     init {
@@ -47,6 +49,9 @@ class ScannerPlatformView(
         supportedFormats = (params?.get("supportedFormats") as? List<*>)?.mapNotNull { it as? String }
         rejectBlurryImages = params?.get("rejectBlurryImages") as? Boolean ?: false
         blurThreshold = (params?.get("blurThreshold") as? Number)?.toDouble() ?: 35.0
+        minConfirmations = (params?.get("minConfirmations") as? Number)?.toInt() ?: 2
+        val intervalRaw = params?.get("scanInterval")
+        scanInterval = (intervalRaw as? Number)?.toLong() ?: 50L
 
         cameraExecutor = Executors.newSingleThreadExecutor()
         startCamera()
@@ -123,6 +128,8 @@ class ScannerPlatformView(
                 supportedFormats = supportedFormats,
                 rejectBlurryImages = rejectBlurryImages,
                 blurThreshold = blurThreshold,
+                minConfirmations = minConfirmations,
+                scanInterval = scanInterval,
                 executor = SafeExecutor(cameraExecutor),
                 onBarcodeDetected = { results ->
                     ContextCompat.getMainExecutor(context).execute {
