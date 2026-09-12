@@ -258,11 +258,28 @@ class BarcodeAnalyzer(
 
                           try {
                               compressionExecutor.execute {
+                                  // Opt-in blur check on the bitmap; gates compression so rejected frames skip that CPU cost too.
+                                  var imageRejected = false
+                                  var sharpnessScore: Double? = null
+                                  if (rejectBlurryImages) {
+                                      val newScans = scanDataList.filter { it.isNewScan }
+                                      val roi = computeUnionBoundingBox(newScans, outWidth, outHeight)
+                                      if (roi != null) {
+                                          val variance = computeLaplacianVarianceFromBitmap(bitmapToCompress, roi)
+                                          sharpnessScore = variance
+                                          if (variance != null && variance < blurThreshold) {
+                                              imageRejected = true
+                                          }
+                                      }
+                                  }
+
                                   var imageBytes: ByteArray? = null
                                   try {
-                                      val stream = java.io.ByteArrayOutputStream()
-                                      bitmapToCompress.compress(android.graphics.Bitmap.CompressFormat.JPEG, 80, stream)
-                                      imageBytes = stream.toByteArray()
+                                      if (!imageRejected) {
+                                          val stream = java.io.ByteArrayOutputStream()
+                                          bitmapToCompress.compress(android.graphics.Bitmap.CompressFormat.JPEG, 80, stream)
+                                          imageBytes = stream.toByteArray()
+                                      }
                                   } catch (e: Throwable) {
                                       // Compression error
                                   } finally {
@@ -278,10 +295,10 @@ class BarcodeAnalyzer(
                                           "corners" to data.corners,
                                           "imageWidth" to outWidth,
                                           "imageHeight" to outHeight,
-                                          "imageBytes" to if (data.isNewScan) imageBytes else null,
+                                          "imageBytes" to if (data.isNewScan && !imageRejected) imageBytes else null,
                                           "timestamp" to currentTime,
-                                          "imageRejected" to false,
-                                          "sharpnessScore" to null
+                                          "imageRejected" to (data.isNewScan && imageRejected),
+                                          "sharpnessScore" to if (data.isNewScan) sharpnessScore else null
                                       )
                                   }
                                   onBarcodeDetected(results)
@@ -482,6 +499,64 @@ class BarcodeAnalyzer(
         val mean = sumLaplacian / count
         val variance = (sumLaplacianSq / count) - (mean * mean)
         return variance
+    }
+
+    // Same pipeline as computeLaplacianVariance (low-light gate → downsample → box-blur → Laplacian) but reads from a Bitmap so imageProxy need not be open.
+    internal fun computeLaplacianVarianceFromBitmap(bitmap: android.graphics.Bitmap, roi: android.graphics.Rect): Double? {
+        var roiWidth = roi.width()
+        var roiHeight = roi.height()
+        if (roiWidth <= 0 || roiHeight <= 0) return null
+
+        val pixelsArgb = IntArray(roiWidth * roiHeight)
+        try {
+            bitmap.getPixels(pixelsArgb, 0, roiWidth, roi.left, roi.top, roiWidth, roiHeight)
+        } catch (e: Exception) {
+            return null
+        }
+        var pixels = IntArray(roiWidth * roiHeight) { i ->
+            val p = pixelsArgb[i]
+            ((p shr 16 and 0xFF) * 299 + (p shr 8 and 0xFF) * 587 + (p and 0xFF) * 114) / 1000
+        }
+
+        var lumaSum = 0L
+        for (p in pixels) lumaSum += p
+        if (lumaSum.toDouble() / pixels.size < 40.0) return null
+
+        val maxPixelsCeiling = 62500
+        while (roiWidth * roiHeight > maxPixelsCeiling && roiWidth >= 4 && roiHeight >= 4) {
+            val nw = roiWidth / 2; val nh = roiHeight / 2
+            val ds = IntArray(nw * nh)
+            for (y in 0 until nh) for (x in 0 until nw) {
+                ds[y * nw + x] = (pixels[(y*2)*roiWidth+(x*2)] + pixels[(y*2)*roiWidth+(x*2+1)] +
+                    pixels[(y*2+1)*roiWidth+(x*2)] + pixels[(y*2+1)*roiWidth+(x*2+1)]) / 4
+            }
+            pixels = ds; roiWidth = nw; roiHeight = nh
+        }
+
+        val blurred = IntArray(roiWidth * roiHeight)
+        for (y in 0 until roiHeight) for (x in 0 until roiWidth) {
+            if (y == 0 || y == roiHeight - 1 || x == 0 || x == roiWidth - 1) {
+                blurred[y * roiWidth + x] = pixels[y * roiWidth + x]
+            } else {
+                var sum = 0
+                for (ky in -1..1) for (kx in -1..1) sum += pixels[(y+ky)*roiWidth+(x+kx)]
+                blurred[y * roiWidth + x] = sum / 9
+            }
+        }
+        pixels = blurred
+
+        var sumL = 0.0; var sumLSq = 0.0; var count = 0
+        for (y in 1 until roiHeight - 1) {
+            val idx = y * roiWidth
+            for (x in 1 until roiWidth - 1) {
+                val lap = (pixels[idx-roiWidth+x] + pixels[idx+roiWidth+x] +
+                    pixels[idx+x-1] + pixels[idx+x+1] - 4*pixels[idx+x]).toDouble()
+                sumL += lap; sumLSq += lap * lap; count++
+            }
+        }
+        if (count == 0) return null
+        val mean = sumL / count
+        return (sumLSq / count) - (mean * mean)
     }
 }
 
