@@ -64,8 +64,6 @@ class ScannerPlatformView: NSObject, FlutterPlatformView, AVCaptureVideoDataOutp
     private var enableImageCapture: Bool = true
     private var scanWindowWidthFactor: Double? = nil
     private var scanWindowHeightFactor: Double? = nil
-    private var rejectBlurryImages: Bool = false
-    private var blurThreshold: Double = 35.0
     /// nil = no cap; set via maxExposureDurationSeconds to trade low-light brightness for less motion blur.
     private var maxExposureDurationSeconds: Double? = nil
     /// Empty = all formats (default); non-empty = Vision restricted to only these symbologies.
@@ -108,12 +106,6 @@ class ScannerPlatformView: NSObject, FlutterPlatformView, AVCaptureVideoDataOutp
             }
             if let swHeight = params["scanWindowHeightFactor"] as? Double {
                 self.scanWindowHeightFactor = swHeight
-            }
-            if let rejectBlurry = params["rejectBlurryImages"] as? Bool {
-                self.rejectBlurryImages = rejectBlurry
-            }
-            if let threshold = params["blurThreshold"] as? Double {
-                self.blurThreshold = threshold
             }
             if let maxExp = params["maxExposureDurationSeconds"] as? Double {
                 self.maxExposureDurationSeconds = maxExp
@@ -602,105 +594,5 @@ class ScannerPlatformView: NSObject, FlutterPlatformView, AVCaptureVideoDataOutp
         self.cachedViewWidth = viewWidth
         self.cachedViewHeight = viewHeight
         self.orientationLock.unlock()
-    }
-    
-    static func laplacianVariance(cgImage: CGImage) -> Double? {
-        let width = cgImage.width
-        let height = cgImage.height
-        
-        var roiWidth = width
-        var roiHeight = height
-        
-        // 1. Draw CGImage into an 8-bit grayscale bitmap context
-        let colorSpace = CGColorSpaceCreateDeviceGray()
-        var pixels = [UInt8](repeating: 0, count: roiWidth * roiHeight)
-        guard let context = CGContext(
-            data: &pixels,
-            width: roiWidth,
-            height: roiHeight,
-            bitsPerComponent: 8,
-            bytesPerRow: roiWidth,
-            space: colorSpace,
-            bitmapInfo: CGImageAlphaInfo.none.rawValue
-        ) else { return nil }
-        
-        context.draw(cgImage, in: CGRect(x: 0, y: 0, width: roiWidth, height: roiHeight))
-        
-        // 2. Low Light / Sensor Noise Mitigation: compute mean luma first
-        var lumaSum: Int64 = 0
-        for p in pixels {
-            lumaSum += Int64(p)
-        }
-        let meanLuma = Double(lumaSum) / Double(pixels.count)
-        if meanLuma < 40.0 {
-            print("[ScannerPlatformView] Low light detected (mean luma: \(meanLuma) < 40.0), skipping blur rejection")
-            return nil
-        }
-        
-        // 3. Max ROI Downsampling cap (62500 px ceiling)
-        let maxPixelsCeiling = 62500
-        while roiWidth * roiHeight > maxPixelsCeiling && roiWidth >= 4 && roiHeight >= 4 {
-            let newWidth = roiWidth / 2
-            let newHeight = roiHeight / 2
-            var downsampled = [UInt8](repeating: 0, count: newWidth * newHeight)
-            for y in 0..<newHeight {
-                for x in 0..<newWidth {
-                    let p00 = Int(pixels[(y * 2) * roiWidth + (x * 2)])
-                    let p01 = Int(pixels[(y * 2) * roiWidth + (x * 2 + 1)])
-                    let p10 = Int(pixels[(y * 2 + 1) * roiWidth + (x * 2)])
-                    let p11 = Int(pixels[(y * 2 + 1) * roiWidth + (x * 2 + 1)])
-                    downsampled[y * newWidth + x] = UInt8((p00 + p01 + p10 + p11) / 4)
-                }
-            }
-            pixels = downsampled
-            roiWidth = newWidth
-            roiHeight = newHeight
-        }
-        
-        // 4. Cheap 3x3 box blur (noise pre-pass)
-        var blurredPixels = [UInt8](repeating: 0, count: roiWidth * roiHeight)
-        for y in 0..<roiHeight {
-            for x in 0..<roiWidth {
-                if y == 0 || y == roiHeight - 1 || x == 0 || x == roiWidth - 1 {
-                    blurredPixels[y * roiWidth + x] = pixels[y * roiWidth + x]
-                } else {
-                    var sum = 0
-                    for ky in -1...1 {
-                        for kx in -1...1 {
-                            sum += Int(pixels[(y + ky) * roiWidth + (x + kx)])
-                        }
-                    }
-                    blurredPixels[y * roiWidth + x] = UInt8(sum / 9)
-                }
-            }
-        }
-        pixels = blurredPixels
-        
-        // 5. Laplacian kernel [[0, 1, 0], [1, -4, 1], [0, 1, 0]]
-        var sumLaplacian: Double = 0.0
-        var sumLaplacianSq: Double = 0.0
-        var count = 0
-        
-        for y in 1..<(roiHeight - 1) {
-            let idx = y * roiWidth
-            for x in 1..<(roiWidth - 1) {
-                let center = Int(pixels[idx + x])
-                let left = Int(pixels[idx + x - 1])
-                let right = Int(pixels[idx + x + 1])
-                let up = Int(pixels[idx - roiWidth + x])
-                let down = Int(pixels[idx + roiWidth + x])
-                
-                let lap = Double(up + down + left + right - 4 * center)
-                sumLaplacian += lap
-                sumLaplacianSq += lap * lap
-                count += 1
-            }
-        }
-        
-        if count == 0 { return nil }
-        
-        let mean = sumLaplacian / Double(count)
-        let variance = (sumLaplacianSq / Double(count)) - (mean * mean)
-        return variance
     }
 }
