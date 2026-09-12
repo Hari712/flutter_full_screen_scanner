@@ -364,20 +364,43 @@ class ScannerPlatformView: NSObject, FlutterPlatformView, AVCaptureVideoDataOutp
                     return
                 }
 
-                // Direct JPEG capture without Laplacian blur rejection
+                // Crop to the union bounding box of accepted entries with 50% padding per side (generous for curved/wrapped labels).
                 var imageBytes: FlutterStandardTypedData? = nil
-                
+                var cropOriginX: Double = 0.0
+                var cropOriginY: Double = 0.0
+                var cropWidth: Double = imgWidth
+                var cropHeight: Double = imgHeight
+
                 if self.enableImageCapture {
                     let ciContext = CIContext()
                     let ciImage = CIImage(cvPixelBuffer: pixelBuffer).oriented(cgOrientation)
-                    if let cgImage = ciContext.createCGImage(ciImage, from: ciImage.extent) {
+                    var cMinX = imgWidth, cMaxX = 0.0, cMinY = imgHeight, cMaxY = 0.0
+                    for entry in acceptedEntries {
+                        for corner in entry.imageCorners {
+                            let cx = corner["x"] ?? 0.0, cy = corner["y"] ?? 0.0
+                            if cx < cMinX { cMinX = cx }; if cx > cMaxX { cMaxX = cx }
+                            if cy < cMinY { cMinY = cy }; if cy > cMaxY { cMaxY = cy }
+                        }
+                    }
+                    let barcodeW = cMaxX - cMinX, barcodeH = cMaxY - cMinY
+                    if barcodeW > 0 && barcodeH > 0 {
+                        let padX = barcodeW * 0.5, padY = barcodeH * 0.5
+                        cropOriginX = Swift.max(0.0, cMinX - padX)
+                        cropOriginY = Swift.max(0.0, cMinY - padY)
+                        cropWidth  = Swift.min(imgWidth,  cMaxX + padX) - cropOriginX
+                        cropHeight = Swift.min(imgHeight, cMaxY + padY) - cropOriginY
+                    }
+                    // CIImage Y increases upward; convert UIKit crop rect (Y downward) to CIImage space.
+                    let ciCropRect = CGRect(x: cropOriginX, y: imgHeight - cropOriginY - cropHeight,
+                                           width: cropWidth, height: cropHeight)
+                    if let cgImage = ciContext.createCGImage(ciImage, from: ciCropRect) {
                         let uiImage = UIImage(cgImage: cgImage)
                         if let jpegData = uiImage.jpegData(compressionQuality: 0.8) {
                             imageBytes = FlutterStandardTypedData(bytes: jpegData)
                         }
                     }
                 }
-                
+
                 let finalAcceptedEntries = acceptedEntries
                 if finalAcceptedEntries.isEmpty {
                     self.imagesCurrentlyBeingProcessed = false
@@ -399,13 +422,16 @@ class ScannerPlatformView: NSObject, FlutterPlatformView, AVCaptureVideoDataOutp
                         
                         let barcodeType = self.mapVisionSymbologyToMetadataType(entry.observation.symbology)
                         
+                        let adjustedCorners = entry.imageCorners.map { c -> [String: Double] in
+                            ["x": (c["x"] ?? 0.0) - cropOriginX, "y": (c["y"] ?? 0.0) - cropOriginY]
+                        }
                         var result: [String: Any] = [
                             "value": stringValue,
                             "type": barcodeType,
                             "timestamp": Int(currentTime),
-                            "corners": entry.imageCorners,
-                            "imageWidth": Int(imgWidth),
-                            "imageHeight": Int(imgHeight),
+                            "corners": adjustedCorners,
+                            "imageWidth": Int(cropWidth),
+                            "imageHeight": Int(cropHeight),
                             "imageRejected": false
                         ]
                         
@@ -440,7 +466,7 @@ class ScannerPlatformView: NSObject, FlutterPlatformView, AVCaptureVideoDataOutp
     // Code 39, ITF-14, and Codabar lack strong checksums; all other Vision symbologies are excluded from this gate.
     private static func isWeakChecksumSymbology(_ symbology: VNBarcodeSymbology) -> Bool {
         if #available(iOS 15.0, *) {
-            if symbology == .codaBar { return true }
+            if symbology == .codabar { return true }
         }
         return symbology == .code39 || symbology == .itf14
     }
