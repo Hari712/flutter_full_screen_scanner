@@ -91,7 +91,7 @@ class BarcodeAnalyzer(
     private val candidateDetections = mutableMapOf<String, MutableList<Long>>()
     private class BlurryState(var count: Int, var lastSeen: Long)
     private val blurryAttempts = mutableMapOf<String, BlurryState>()
-    private val compressionExecutor = java.util.concurrent.Executors.newCachedThreadPool()
+    private val compressionExecutor = java.util.concurrent.Executors.newFixedThreadPool(2)
     private var lastAnalysisTimestamp = 0L
 
     fun close() {
