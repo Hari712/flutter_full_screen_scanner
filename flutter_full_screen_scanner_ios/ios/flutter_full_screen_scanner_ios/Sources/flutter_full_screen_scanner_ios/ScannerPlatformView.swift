@@ -320,16 +320,12 @@ class ScannerPlatformView: NSObject, FlutterPlatformView, AVCaptureVideoDataOutp
                             let yMin = 0.5 - hFactor / 2.0
                             let yMax = 0.5 + hFactor / 2.0
                             
-                            let sumX = screenCorners.map { Double($0.x) }.reduce(0, +)
-                            let sumY = screenCorners.map { Double($0.y) }.reduce(0, +)
-                            let cx = sumX / Double(screenCorners.count)
-                            let cy = sumY / Double(screenCorners.count)
-                            
-                            let normX = cx / viewWidth
-                            let normY = cy / viewHeight
-                            
-                            let inside = normX >= xMin && normX <= xMax && normY >= yMin && normY <= yMax
-                            if !inside { continue }
+                            let allInside = screenCorners.allSatisfy { corner in
+                                let normX = Double(corner.x) / viewWidth
+                                let normY = Double(corner.y) / viewHeight
+                                return normX >= xMin && normX <= xMax && normY >= yMin && normY <= yMax
+                            }
+                            if !allInside { continue }
                         }
                         
                         // Duplicate prevention

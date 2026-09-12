@@ -161,7 +161,7 @@ class BarcodeAnalyzer(
                           android.graphics.PointF(point.x.toFloat(), point.y.toFloat())
                       }
 
-                    // 1. Check scan window if set using centroid (center point) to match Dart-side calculation
+                    // 1. Check scan window if set — all four corners must fall within the window
                     if (scanWindowWidthFactor != null && scanWindowHeightFactor != null) {
                         val pvWidth = previewView?.width?.toFloat() ?: 0f
                         val pvHeight = previewView?.height?.toFloat() ?: 0f
@@ -181,20 +181,15 @@ class BarcodeAnalyzer(
                              val yMax = 0.5 + hFactor / 2.0
 
                              if (uprightCorners.isNotEmpty()) {
-                                 val sumX = uprightCorners.map { it.x }.sum()
-                                 val sumY = uprightCorners.map { it.y }.sum()
-                                 val cx = sumX / uprightCorners.size
-                                 val cy = sumY / uprightCorners.size
-                                 
-                                 val px = cx * scale - dx
-                                 val py = cy * scale - dy
-                                 val nx = px / pvWidth
-                                 val ny = py / pvHeight
-                                 
-                                 val inside = nx >= xMin && nx <= xMax && ny >= yMin && ny <= yMax
-                                 android.util.Log.d("BarcodeAnalyzer", "ScanWindow check: value=$value, cx=$cx, cy=$cy, nx=$nx, ny=$ny, xRange=[$xMin, $xMax], yRange=[$yMin, $yMax], inside=$inside")
-                                 if (!inside) {
-                                     continue // Skip since the barcode is not inside the scan window
+                                 val allInside = uprightCorners.all { corner ->
+                                     val px = corner.x * scale - dx
+                                     val py = corner.y * scale - dy
+                                     val nx = px / pvWidth
+                                     val ny = py / pvHeight
+                                     nx >= xMin && nx <= xMax && ny >= yMin && ny <= yMax
+                                 }
+                                 if (!allInside) {
+                                     continue // Skip since not all corners are inside the scan window
                                  }
                              }
                          }
