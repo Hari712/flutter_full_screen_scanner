@@ -240,12 +240,30 @@ class BarcodeAnalyzer(
                     }
 
                     // Decode success is the only quality gate for the barcode value; computeUnionBoundingBox/computeLaplacianVariance are never called unless rejectBlurryImages is true (opt-in photo check only, zero extra CPU at the default).
+                    var cropLeft = 0
+                    var cropTop = 0
                     if (needsImageCapture) {
                         try {
                             rawBitmap = imageProxy.toBitmap()
-                            uprightBitmap = android.graphics.Bitmap.createBitmap(
+                            val rotated = android.graphics.Bitmap.createBitmap(
                                 rawBitmap, 0, 0, rawBitmap.width, rawBitmap.height, matrix, true
                             )
+                            // Crop to the barcode bounding box before compression to reduce memory and output size.
+                            try {
+                                val cropRect = computeUnionBoundingBox(scanDataList.filter { it.isNewScan }, rotated.width, rotated.height)
+                                if (cropRect != null) {
+                                    uprightBitmap = android.graphics.Bitmap.createBitmap(
+                                        rotated, cropRect.left, cropRect.top, cropRect.width(), cropRect.height()
+                                    )
+                                    cropLeft = cropRect.left
+                                    cropTop = cropRect.top
+                                    rotated.recycle()
+                                } else {
+                                    uprightBitmap = rotated
+                                }
+                            } catch (e: Throwable) {
+                                uprightBitmap = rotated // fall back to full frame if crop fails
+                            }
                         } catch (e: Throwable) {
                             // Ignore fallback
                         }
@@ -255,6 +273,8 @@ class BarcodeAnalyzer(
                           val bitmapToCompress = uprightBitmap
                           val outWidth = uprightBitmap.width
                           val outHeight = uprightBitmap.height
+                          val capturedCropLeft = cropLeft
+                          val capturedCropTop = cropTop
 
                           try {
                               compressionExecutor.execute {
@@ -263,7 +283,12 @@ class BarcodeAnalyzer(
                                   var sharpnessScore: Double? = null
                                   if (rejectBlurryImages) {
                                       val newScans = scanDataList.filter { it.isNewScan }
-                                      val roi = computeUnionBoundingBox(newScans, outWidth, outHeight)
+                                      // When cropped, the bitmap IS the barcode region; when full frame, compute the bounding box.
+                                      val roi = if (capturedCropLeft != 0 || capturedCropTop != 0) {
+                                          android.graphics.Rect(0, 0, outWidth, outHeight)
+                                      } else {
+                                          computeUnionBoundingBox(newScans, outWidth, outHeight)
+                                      }
                                       if (roi != null) {
                                           val variance = computeLaplacianVarianceFromBitmap(bitmapToCompress, roi)
                                           sharpnessScore = variance
@@ -289,10 +314,17 @@ class BarcodeAnalyzer(
                                   }
 
                                   val results = scanDataList.map { data ->
+                                      val corners = if (capturedCropLeft != 0 || capturedCropTop != 0) {
+                                          data.corners.map { c ->
+                                              mapOf("x" to ((c["x"] ?: 0.0) - capturedCropLeft), "y" to ((c["y"] ?: 0.0) - capturedCropTop))
+                                          }
+                                      } else {
+                                          data.corners
+                                      }
                                       mapOf(
                                           "value" to data.value,
                                           "type" to mapBarcodeFormat(data.format),
-                                          "corners" to data.corners,
+                                          "corners" to corners,
                                           "imageWidth" to outWidth,
                                           "imageHeight" to outHeight,
                                           "imageBytes" to if (data.isNewScan && !imageRejected) imageBytes else null,
