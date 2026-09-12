@@ -40,6 +40,7 @@ class _ScannerViewState extends State<ScannerView> {
       'blurThreshold': widget.options.blurThreshold,
       'minConfirmations': widget.options.minConfirmations,
       'scanInterval': widget.options.scanInterval,
+      'confidenceThreshold': widget.options.confidenceThreshold,
       if (widget.options.maxExposureDurationSeconds != null)
         'maxExposureDurationSeconds': widget.options.maxExposureDurationSeconds!,
       if (widget.options.scanWindow != null) ...{

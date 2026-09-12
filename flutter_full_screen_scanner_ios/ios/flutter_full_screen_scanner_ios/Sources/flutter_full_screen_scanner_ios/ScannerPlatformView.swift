@@ -76,6 +76,7 @@ class ScannerPlatformView: NSObject, FlutterPlatformView, AVCaptureVideoDataOutp
     private var imagesCurrentlyBeingProcessed = false
     private var scanIntervalMs: Double = 50.0
     private var lastAnalysisTimestamp: TimeInterval = 0
+    private var confidenceThreshold: Double = 0.0
     
     // Cached orientation and size state
     private var cachedCGImageOrientation: CGImagePropertyOrientation = .right
@@ -122,6 +123,9 @@ class ScannerPlatformView: NSObject, FlutterPlatformView, AVCaptureVideoDataOutp
             }
             if let interval = params["scanInterval"] as? Int {
                 self.scanIntervalMs = Double(interval)
+            }
+            if let confidence = params["confidenceThreshold"] as? Double {
+                self.confidenceThreshold = confidence
             }
         }
         
@@ -337,6 +341,10 @@ class ScannerPlatformView: NSObject, FlutterPlatformView, AVCaptureVideoDataOutp
                         }
                         
                         if !self.allowDuplicate && !isNewScan {
+                            continue
+                        }
+                        
+                        if self.confidenceThreshold > 0.0 && observation.confidence < Float(self.confidenceThreshold) {
                             continue
                         }
                         
