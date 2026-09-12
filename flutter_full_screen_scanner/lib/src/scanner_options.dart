@@ -78,6 +78,14 @@ class ScannerOptions {
   final bool autoZoom;
   final double imageQuality; // 0.0 to 1.0
   final double confidenceThreshold; // 0.0 to 1.0
+
+  /// Whether to apply an additional pixel-level sharpness check on the *captured photo*.
+  ///
+  /// This does **not** affect whether the barcode *value* is trustworthy — decode success
+  /// already guarantees that. When `true`, a Laplacian variance check is applied to the
+  /// barcode region of the captured image and the photo may be rejected even though the
+  /// value was decoded correctly. Defaults to `false`; leave it off unless you specifically
+  /// need to discard blurry evidence images.
   final bool rejectBlurryImages;
   final double blurThreshold;
   final int minConfirmations;

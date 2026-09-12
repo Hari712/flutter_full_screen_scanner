@@ -10,7 +10,6 @@ import com.google.mlkit.vision.barcode.BarcodeScanning
 import com.google.mlkit.vision.barcode.common.Barcode
 import com.google.mlkit.vision.common.InputImage
 
-import com.google.android.gms.tasks.Tasks
 
 fun mapBarcodeFormat(format: Int): String {
     return when (format) {
@@ -124,16 +123,19 @@ class BarcodeAnalyzer(
 
         lastAnalysisTimestamp = currentTime
 
+        // AtomicBoolean guard ensures imageProxy.close() fires exactly once across all three listener paths.
+        val frameReleased = java.util.concurrent.atomic.AtomicBoolean(false)
+        fun releaseFrame() {
+            if (frameReleased.compareAndSet(false, true)) imageProxy.close()
+        }
+
+        val rotation = imageProxy.imageInfo.rotationDegrees.toFloat()
+        val image = InputImage.fromMediaImage(mediaImage, imageProxy.imageInfo.rotationDegrees)
+        val scanTask = scanner.process(image)
+        scanTask.addOnSuccessListener(executor) { barcodes ->
         var rawBitmap: android.graphics.Bitmap? = null
         var uprightBitmap: android.graphics.Bitmap? = null
         try {
-            val rotation = imageProxy.imageInfo.rotationDegrees.toFloat()
-            val image = InputImage.fromMediaImage(mediaImage, imageProxy.imageInfo.rotationDegrees)
-            
-            // Perform synchronous scanning to leverage CameraX's KEEP_ONLY_LATEST strategy.
-            // This prevents frame processing backlog and avoids camera buffer/preview starvation.
-            val barcodes = Tasks.await(scanner.process(image))
-
             if (barcodes.isNotEmpty()) {
                 android.util.Log.d("BarcodeAnalyzer", "Detected ${barcodes.size} barcodes")
                 val currentTime = System.currentTimeMillis()
@@ -242,6 +244,7 @@ class BarcodeAnalyzer(
                         scanDataList.add(data)
                     }
 
+                    // Decode success is the only quality gate for the barcode value; computeUnionBoundingBox/computeLaplacianVariance are never called unless rejectBlurryImages is true (opt-in photo check only, zero extra CPU at the default).
                     if (needsImageCapture) {
                         try {
                             rawBitmap = imageProxy.toBitmap()
@@ -329,11 +332,17 @@ class BarcodeAnalyzer(
             android.util.Log.e("BarcodeAnalyzer", "Error processing image frame", e)
         } finally {
             if (rawBitmap != null && rawBitmap != uprightBitmap) {
-                try {
-                    rawBitmap.recycle()
-                } catch (e: Exception) {}
+                try { rawBitmap.recycle() } catch (e: Exception) {}
             }
-            imageProxy.close()
+            releaseFrame()
+        }
+        }
+        scanTask.addOnFailureListener { e ->
+            android.util.Log.e("BarcodeAnalyzer", "MLKit scanning failed", e)
+            releaseFrame()
+        }
+        scanTask.addOnCanceledListener {
+            releaseFrame()
         }
     }
 
