@@ -39,12 +39,12 @@ class BarcodeAnalyzerTest {
         assertNotNull(rect)
         // Bounding box range: minX=100, maxX=250, minY=100, maxY=250.
         // Width=150, height=150.
-        // padX = 37, padY = 45.
-        // minX becomes 63, maxX becomes 287, minY becomes 55, maxY becomes 295.
-        assertEquals(63, rect!!.left)
-        assertEquals(287, rect.right)
-        assertEquals(55, rect.top)
-        assertEquals(295, rect.bottom)
+        // padX = 67, padY = 90.
+        // minX becomes 33, maxX becomes 317, minY becomes 10, maxY becomes 340.
+        assertEquals(33, rect!!.left)
+        assertEquals(317, rect.right)
+        assertEquals(10, rect.top)
+        assertEquals(340, rect.bottom)
     }
 
     @Test
