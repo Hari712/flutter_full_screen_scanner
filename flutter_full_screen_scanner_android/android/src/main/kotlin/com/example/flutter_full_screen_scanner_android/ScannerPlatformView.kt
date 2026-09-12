@@ -1,7 +1,13 @@
 package com.example.flutter_full_screen_scanner_android
 
 import android.content.Context
+import android.hardware.camera2.CameraCharacteristics
+import android.hardware.camera2.CameraMetadata
+import android.hardware.camera2.CaptureRequest
 import android.view.View
+import androidx.camera.camera2.interop.Camera2CameraInfo
+import androidx.camera.camera2.interop.Camera2Interop
+import androidx.camera.camera2.interop.ExperimentalCamera2Interop
 import androidx.camera.core.*
 import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.camera.view.PreviewView
@@ -83,6 +89,7 @@ class ScannerPlatformView(
         }
     }
 
+    @OptIn(ExperimentalCamera2Interop::class)
     private fun startCamera() {
         analyzer?.close()
         analyzer = null
@@ -111,12 +118,30 @@ class ScannerPlatformView(
             } ?: (context.getSystemService(Context.WINDOW_SERVICE) as android.view.WindowManager).defaultDisplay
             val initialRotation = display?.rotation ?: android.view.Surface.ROTATION_0
 
-            val preview = Preview.Builder()
-                .setResolutionSelector(resolutionSelector)
+            val cameraSelector = CameraSelector.Builder()
+                .requireLensFacing(lensFacing)
                 .build()
-                .also {
-                    it.setSurfaceProvider(previewView.surfaceProvider)
+
+            // Enable OIS and EIS on whichever axes the device actually supports; no-ops on unsupported hardware.
+            val previewBuilder = Preview.Builder().setResolutionSelector(resolutionSelector)
+            val filteredInfos = cameraSelector.filter(cameraProvider!!.availableCameraInfos)
+            if (filteredInfos.isNotEmpty()) {
+                val cam2Info = Camera2CameraInfo.from(filteredInfos.first())
+                val interop = Camera2Interop.Extender(previewBuilder)
+                if (cam2Info.getCameraCharacteristic(CameraCharacteristics.CONTROL_AVAILABLE_VIDEO_STABILIZATION_MODES)
+                        ?.contains(CameraMetadata.CONTROL_VIDEO_STABILIZATION_MODE_ON) == true) {
+                    interop.setCaptureRequestOption(CaptureRequest.CONTROL_VIDEO_STABILIZATION_MODE,
+                        CameraMetadata.CONTROL_VIDEO_STABILIZATION_MODE_ON)
                 }
+                if (cam2Info.getCameraCharacteristic(CameraCharacteristics.LENS_INFO_AVAILABLE_OPTICAL_STABILIZATION_MODES)
+                        ?.contains(CameraMetadata.LENS_OPTICAL_STABILIZATION_MODE_ON) == true) {
+                    interop.setCaptureRequestOption(CaptureRequest.LENS_OPTICAL_STABILIZATION_MODE,
+                        CameraMetadata.LENS_OPTICAL_STABILIZATION_MODE_ON)
+                }
+            }
+            val preview = previewBuilder.build().also {
+                it.setSurfaceProvider(previewView.surfaceProvider)
+            }
 
             val analyzerInstance = BarcodeAnalyzer(
                 previewView = previewView,
@@ -167,10 +192,6 @@ class ScannerPlatformView(
                 }
             }
             displayManager.registerDisplayListener(displayListener, android.os.Handler(android.os.Looper.getMainLooper()))
-
-            val cameraSelector = CameraSelector.Builder()
-                .requireLensFacing(lensFacing)
-                .build()
 
             try {
                 cameraProvider?.unbindAll()

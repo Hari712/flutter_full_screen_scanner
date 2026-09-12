@@ -66,7 +66,9 @@ class ScannerPlatformView: NSObject, FlutterPlatformView, AVCaptureVideoDataOutp
     private var scanWindowHeightFactor: Double? = nil
     private var rejectBlurryImages: Bool = false
     private var blurThreshold: Double = 35.0
-    
+    /// nil = no cap; set via maxExposureDurationSeconds to trade low-light brightness for less motion blur.
+    private var maxExposureDurationSeconds: Double? = nil
+
     private var videoDevice: AVCaptureDevice?
     private var subjectAreaChangeObserver: NSObjectProtocol?
     private var imagesCurrentlyBeingProcessed = false
@@ -107,6 +109,9 @@ class ScannerPlatformView: NSObject, FlutterPlatformView, AVCaptureVideoDataOutp
             }
             if let threshold = params["blurThreshold"] as? Double {
                 self.blurThreshold = threshold
+            }
+            if let maxExp = params["maxExposureDurationSeconds"] as? Double {
+                self.maxExposureDurationSeconds = maxExp
             }
         }
         
@@ -153,6 +158,12 @@ class ScannerPlatformView: NSObject, FlutterPlatformView, AVCaptureVideoDataOutp
                 if videoCaptureDevice.isExposurePointOfInterestSupported {
                     videoCaptureDevice.exposurePointOfInterest = CGPoint(x: 0.5, y: 0.5)
                 }
+                // Opt-in cap: clamps AE shutter to reduce motion blur in dim light; nil = no cap (default).
+                if let maxSeconds = self.maxExposureDurationSeconds, maxSeconds > 0 {
+                    let maxDuration = CMTimeMakeWithSeconds(maxSeconds, preferredTimescale: 1_000_000)
+                    let clamped = CMTimeMinimum(maxDuration, videoCaptureDevice.activeFormat.maxExposureDuration)
+                    videoCaptureDevice.activeMaxExposureDuration = clamped
+                }
             }
             videoCaptureDevice.isSubjectAreaChangeMonitoringEnabled = true
             
@@ -196,6 +207,10 @@ class ScannerPlatformView: NSObject, FlutterPlatformView, AVCaptureVideoDataOutp
             captureSession.addOutput(videoOutput)
             let queue = DispatchQueue(label: "com.example.flutter_full_screen_scanner.captureOutputQueue", qos: .userInitiated)
             videoOutput.setSampleBufferDelegate(self, queue: queue)
+            if let connection = videoOutput.connections.first,
+               connection.isVideoStabilizationSupported {
+                connection.preferredVideoStabilizationMode = .auto
+            }
         }
 
         _view.videoPreviewLayer.session = captureSession

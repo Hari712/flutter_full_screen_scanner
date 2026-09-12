@@ -90,6 +90,9 @@ class ScannerOptions {
   final double blurThreshold;
   final int minConfirmations;
 
+  /// iOS only; clamps auto-exposure duration to trade low-light brightness for less motion blur. `null` = no cap.
+  final double? maxExposureDurationSeconds;
+
   const ScannerOptions({
     this.scanMode = ScanMode.barcode,
     this.continuous = true,
@@ -111,6 +114,7 @@ class ScannerOptions {
     this.rejectBlurryImages = false,
     this.blurThreshold = 35.0,
     this.minConfirmations = 2,
+    this.maxExposureDurationSeconds,
   });
 
   /// Maps the public Dart API to the Pigeon-generated data classes.
