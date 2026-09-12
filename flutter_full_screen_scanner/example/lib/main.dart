@@ -479,6 +479,8 @@ class _FullScreenScannerPageState extends State<FullScreenScannerPage>
                     allowDuplicate: false,
                     duplicateDelay: 2000,
                     enableImageCapture: true,
+                    confidenceThreshold: 0.65,
+                    requireConsecutiveMatches: 2,
                     scanMode: _scanMode == ScanMode.qr
                         ? fss.ScanMode.qr
                         : fss.ScanMode.barcode,
@@ -490,8 +492,6 @@ class _FullScreenScannerPageState extends State<FullScreenScannerPage>
                             fss.BarcodeFormat.code93,
                             fss.BarcodeFormat.codaBar,
                             fss.BarcodeFormat.dataMatrix,
-                            fss.BarcodeFormat.ean13,
-                            fss.BarcodeFormat.ean8,
                             fss.BarcodeFormat.itf,
                             fss.BarcodeFormat.upcA,
                             fss.BarcodeFormat.upcE,
