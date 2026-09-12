@@ -60,6 +60,7 @@ class _ScannerViewState extends State<ScannerView> {
       );
     } else if (defaultTargetPlatform == TargetPlatform.iOS) {
       return UiKitView(
+        key: ValueKey(creationParams.hashCode),
         viewType: _viewType,
         layoutDirection: TextDirection.ltr,
         creationParams: creationParams,

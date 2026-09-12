@@ -384,7 +384,10 @@ class ScannerPlatformView: NSObject, FlutterPlatformView, AVCaptureVideoDataOutp
                     }
                     let barcodeW = cMaxX - cMinX, barcodeH = cMaxY - cMinY
                     if barcodeW > 0 && barcodeH > 0 {
-                        let padX = barcodeW * 0.5, padY = barcodeH * 0.5
+                        let padX = Swift.max(barcodeW * 0.25, 20.0)
+                        let minDesiredHeight = barcodeW * 0.65
+                        let totalHeightWithPad = Swift.max(barcodeH + barcodeH * 0.60, minDesiredHeight)
+                        let padY = Swift.max((totalHeightWithPad - barcodeH) / 2.0, 30.0)
                         cropOriginX = Swift.max(0.0, cMinX - padX)
                         cropOriginY = Swift.max(0.0, cMinY - padY)
                         cropWidth  = Swift.min(imgWidth,  cMaxX + padX) - cropOriginX
