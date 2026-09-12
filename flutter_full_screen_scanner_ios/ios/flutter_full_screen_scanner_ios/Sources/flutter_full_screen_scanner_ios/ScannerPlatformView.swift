@@ -74,6 +74,8 @@ class ScannerPlatformView: NSObject, FlutterPlatformView, AVCaptureVideoDataOutp
     private var videoDevice: AVCaptureDevice?
     private var subjectAreaChangeObserver: NSObjectProtocol?
     private var imagesCurrentlyBeingProcessed = false
+    private var scanIntervalMs: Double = 50.0
+    private var lastAnalysisTimestamp: TimeInterval = 0
     
     // Cached orientation and size state
     private var cachedCGImageOrientation: CGImagePropertyOrientation = .right
@@ -117,6 +119,9 @@ class ScannerPlatformView: NSObject, FlutterPlatformView, AVCaptureVideoDataOutp
             }
             if let formats = params["supportedFormats"] as? [String] {
                 self.configuredSymbologies = ScannerPlatformView.symbologiesFromFormatNames(formats)
+            }
+            if let interval = params["scanInterval"] as? Int {
+                self.scanIntervalMs = Double(interval)
             }
         }
         
@@ -229,12 +234,16 @@ class ScannerPlatformView: NSObject, FlutterPlatformView, AVCaptureVideoDataOutp
     func captureOutput(_ output: AVCaptureOutput, didOutput sampleBuffer: CMSampleBuffer, from connection: AVCaptureConnection) {
         guard let pixelBuffer = CMSampleBufferGetImageBuffer(sampleBuffer) else { return }
         
+        let currentTime = Date().timeIntervalSince1970 * 1000
+        if (currentTime - lastAnalysisTimestamp) < scanIntervalMs {
+            return
+        }
+        lastAnalysisTimestamp = currentTime
+
         if imagesCurrentlyBeingProcessed {
             return
         }
         imagesCurrentlyBeingProcessed = true
-        
-        let currentTime = Date().timeIntervalSince1970 * 1000
         
         // Read cached orientation thread-safely
         self.orientationLock.lock()
