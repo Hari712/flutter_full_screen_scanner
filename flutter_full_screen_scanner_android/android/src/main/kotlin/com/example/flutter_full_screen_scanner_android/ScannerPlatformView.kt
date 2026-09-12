@@ -24,7 +24,7 @@ class ScannerPlatformView(
 ) : PlatformView {
 
     private val previewView: PreviewView = PreviewView(context).apply {
-        implementationMode = PreviewView.ImplementationMode.COMPATIBLE
+        implementationMode = PreviewView.ImplementationMode.PERFORMANCE
         scaleType = PreviewView.ScaleType.FILL_CENTER
     }
     private var cameraProvider: ProcessCameraProvider? = null
