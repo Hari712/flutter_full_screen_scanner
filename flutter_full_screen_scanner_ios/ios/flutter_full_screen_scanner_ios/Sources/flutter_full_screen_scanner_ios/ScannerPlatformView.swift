@@ -550,6 +550,7 @@ class ScannerPlatformView: NSObject, FlutterPlatformView, AVCaptureVideoDataOutp
                             "imageWidth": Int(cropWidth),
                             "imageHeight": Int(cropHeight),
                             "imageRejected": imageRejected,
+                            "motionRisk": motionBlurRisk,
                             "motionBlurRisk": motionBlurRisk
                         ]
 

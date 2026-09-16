@@ -62,11 +62,17 @@ class ScannerResult {
   /// The timestamp (milliseconds since epoch) when the scan occurred.
   final int timestamp;
 
-  /// Whether the image capture ran but was discarded for blur.
+  /// Whether the image capture ran but was discarded for blur or focus settling.
   final bool imageRejected;
+
+  /// The reason why the image capture was rejected (e.g. 'blurry', 'focusSettling'), if applicable.
+  final String? imageRejectReason;
 
   /// The raw sharpness score computed for the image.
   final double? sharpnessScore;
+
+  /// The estimated motion risk score (gyroscope magnitude x exposure duration) at the time of the scan.
+  final double? motionRisk;
 
   const ScannerResult({
     required this.value,
@@ -77,7 +83,9 @@ class ScannerResult {
     this.imageHeight,
     required this.timestamp,
     this.imageRejected = false,
+    this.imageRejectReason,
     this.sharpnessScore,
+    this.motionRisk,
   });
 
   /// Creates a user-facing [ScannerResult] from the Pigeon-generated [ScannerResultData].

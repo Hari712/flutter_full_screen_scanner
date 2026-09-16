@@ -43,7 +43,8 @@ class _ScannerViewState extends State<ScannerView> {
       'confidenceThreshold': widget.options.confidenceThreshold,
       'requireConsecutiveMatches': widget.options.requireConsecutiveMatches,
       if (widget.options.maxExposureDurationSeconds != null)
-        'maxExposureDurationSeconds': widget.options.maxExposureDurationSeconds!,
+        'maxExposureDurationSeconds':
+            widget.options.maxExposureDurationSeconds!,
       if (widget.options.scanWindow != null) ...{
         'scanWindowWidthFactor': widget.options.scanWindow!.widthFactor,
         'scanWindowHeightFactor': widget.options.scanWindow!.heightFactor,

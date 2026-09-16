@@ -1,3 +1,11 @@
+## 1.1.3
+
+- **FEAT**: Sensor-based motion gating pre-decode using linear acceleration and gyroscope to suppress decoding during rapid device movement.
+- **FEAT**: Camera2 autofocus state monitoring and focus settling gate to guarantee sharp captured barcode photos.
+- **FEAT**: Exposure duration tracking and motion blur risk estimation (`motionRisk`).
+- **FEAT**: Capture rejection reason metadata (`imageRejectReason`: "focusSettling", "blurry") and Laplacian sharpness scoring.
+- **FIX**: Correct optical image stabilization characteristic key query.
+
 ## 1.1.2
 
 - **PERF**: throttle MLKit barcode frame analysis to 150ms interval (~6.6 scans per second) to resolve high CPU usage, device heating, and camera preview lag on Android devices.

@@ -1,3 +1,13 @@
+## 1.1.3
+
+- **FEAT**: Pre-decode sensor motion gating on Android & iOS to prevent scanning during fast sweeps.
+- **FEAT**: Autofocus & autoexposure settling gates to ensure crystal-clear captured barcode photos.
+- **FEAT**: Cross-platform Laplacian variance sharpness calculation and blur rejection (`rejectBlurryImages`, `blurThreshold`).
+- **FEAT**: Detailed capture quality metadata in `ScannerResult` (`imageRejectReason`, `sharpnessScore`, `motionRisk`).
+- **FEAT**: Expanded barcode crop bounds to generous proportions matching full scan window context.
+- **DOCS**: Added comprehensive integration guide and exhaustive `ScannerOptions` reference table.
+- **CHORE**: Bumped `flutter_full_screen_scanner_android`, `flutter_full_screen_scanner_ios`, and `flutter_full_screen_scanner_platform_interface` to `^1.1.3`.
+
 ## 1.1.2
 
 - **PERF**: throttle MLKit barcode frame analysis to 150ms interval (~6.6 scans per second) to resolve high CPU usage, device heating, and camera preview lag on Android devices.

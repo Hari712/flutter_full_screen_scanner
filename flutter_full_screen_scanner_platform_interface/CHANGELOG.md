@@ -1,3 +1,7 @@
+## 1.1.3
+
+- **CHORE**: Bump version to 1.1.3 for release consistency across federated packages.
+
 ## 1.1.2
 
 - **CHORE**: Bump version to 1.1.2 for release consistency.

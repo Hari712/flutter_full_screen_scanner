@@ -1,3 +1,11 @@
+## 1.1.3
+
+- **FEAT**: CoreMotion motion gating pre-decode using linear acceleration and rotation rate to suppress decoding during rapid device sweeps.
+- **FEAT**: KVO-based autofocus (`isAdjustingFocus`) and autoexposure (`isAdjustingExposure`) settling detection for crystal-clear photo capture.
+- **FEAT**: Native Laplacian variance sharpness calculation for `rejectBlurryImages` with low-light luminance protection.
+- **FEAT**: Motion blur risk score (`motionRisk` / `motionBlurRisk`) computed from rotation rate and exposure duration.
+- **FEAT**: Image capture rejection reason reporting (`imageRejectReason`: "focusSettling", "blurry") and sharpness scoring.
+
 ## 1.1.2
 
 - **CHORE**: Bump version to 1.1.2 for release consistency.

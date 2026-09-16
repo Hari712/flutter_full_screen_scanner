@@ -79,9 +79,10 @@ class ScannerOptions {
   final double imageQuality; // 0.0 to 1.0
   final double confidenceThreshold; // 0.0 to 1.0
 
-  /// Android only: opt-in Laplacian pixel check on the captured photo; on iOS use `confidenceThreshold` instead.
+  /// Opt-in Laplacian pixel sharpness check on the captured photo (supported on Android and iOS).
   final bool rejectBlurryImages;
-  /// Android only: Laplacian variance threshold below which the captured image is rejected as blurry.
+
+  /// Laplacian variance threshold below which the captured image is rejected as blurry (default: 35.0).
   final double blurThreshold;
   final int minConfirmations;
 
