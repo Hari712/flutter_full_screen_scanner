@@ -2,6 +2,7 @@ import Flutter
 import UIKit
 import AVFoundation
 import Vision
+import CoreMotion
 
 class CameraPreviewView: UIView {
     var onLayoutChanged: (() -> Void)?
@@ -62,6 +63,9 @@ class ScannerPlatformView: NSObject, FlutterPlatformView, AVCaptureVideoDataOutp
     private var scannedCache: [String: TimeInterval] = [:]
     
     private var enableImageCapture: Bool = true
+    /// Opt-in Laplacian variance check on the captured photo, mirroring Android's rejectBlurryImages/blurThreshold.
+    private var rejectBlurryImages: Bool = false
+    private var blurThreshold: Double = 35.0
     private var scanWindowWidthFactor: Double? = nil
     private var scanWindowHeightFactor: Double? = nil
     /// nil = no cap; set via maxExposureDurationSeconds to trade low-light brightness for less motion blur.
@@ -85,6 +89,29 @@ class ScannerPlatformView: NSObject, FlutterPlatformView, AVCaptureVideoDataOutp
     private var cachedViewHeight: Double = 0.0
     private let orientationLock = NSLock()
 
+    // Gyroscope-derived motion signal, sampled independently of the barcode decode path.
+    private let motionManager = CMMotionManager()
+    private var latestRotationRate: (x: Double, y: Double, z: Double) = (0.0, 0.0, 0.0)
+    private let motionLock = NSLock()
+
+    // Pre-decode motion gate: gravity-compensated linear acceleration is a better "is the phone
+    // sweeping through space" signal than rotation rate (a sweep between labels is mostly translation).
+    private var linearMotionMagnitude: Double = 0.0
+    private var motionGateOpen: Bool = true
+    private var motionSettledSampleStreak: Int = 0
+    // Calibrate on-device: log linearMotionMagnitude (units of g) while sweeping between labels vs.
+    // dwelling on one, and pick a cutoff between the two clusters. Starting placeholder below.
+    private let motionGateThreshold: Double = 0.15
+    // Hysteresis: only reopens the gate after this many consecutive samples under threshold, so a
+    // frame right at the edge of a sweep isn't analyzed while the phone is still decelerating.
+    private let motionSettleSampleCount = 3
+
+    // KVO-observed AF/AE settling state; gates photo capture only, never the barcode decode.
+    private var isAdjustingFocus: Bool = false
+    private var isAdjustingExposure: Bool = false
+    private let focusStateLock = NSLock()
+    private var focusObserversAddedTo: AVCaptureDevice?
+
     init(
         frame: CGRect,
         viewIdentifier viewId: Int64,
@@ -103,6 +130,12 @@ class ScannerPlatformView: NSObject, FlutterPlatformView, AVCaptureVideoDataOutp
             }
             if let enableCapture = params["enableImageCapture"] as? Bool {
                 self.enableImageCapture = enableCapture
+            }
+            if let reject = params["rejectBlurryImages"] as? Bool {
+                self.rejectBlurryImages = reject
+            }
+            if let threshold = params["blurThreshold"] as? Double {
+                self.blurThreshold = threshold
             }
             if let swWidth = params["scanWindowWidthFactor"] as? Double {
                 self.scanWindowWidthFactor = swWidth
@@ -188,6 +221,10 @@ class ScannerPlatformView: NSObject, FlutterPlatformView, AVCaptureVideoDataOutp
             print("Failed to configure focus/exposure.")
         }
 
+        videoCaptureDevice.addObserver(self, forKeyPath: #keyPath(AVCaptureDevice.isAdjustingFocus), options: [.new], context: nil)
+        videoCaptureDevice.addObserver(self, forKeyPath: #keyPath(AVCaptureDevice.isAdjustingExposure), options: [.new], context: nil)
+        focusObserversAddedTo = videoCaptureDevice
+
         // Listen to subject area changes to trigger re-focus immediately
         self.subjectAreaChangeObserver = NotificationCenter.default.addObserver(
             forName: NSNotification.Name.AVCaptureDeviceSubjectAreaDidChange,
@@ -231,11 +268,59 @@ class ScannerPlatformView: NSObject, FlutterPlatformView, AVCaptureVideoDataOutp
         DispatchQueue.global(qos: .background).async {
             captureSession.startRunning()
         }
+
+        startMotionUpdates()
+    }
+
+    private func startMotionUpdates() {
+        guard motionManager.isDeviceMotionAvailable else { return }
+        motionManager.deviceMotionUpdateInterval = 1.0 / 60.0
+        let motionQueue = OperationQueue()
+        motionManager.startDeviceMotionUpdates(to: motionQueue) { [weak self] motion, error in
+            guard let self = self, let motion = motion else { return }
+            let rr = motion.rotationRate
+            let ua = motion.userAcceleration
+            let linearMagnitude = sqrt(ua.x * ua.x + ua.y * ua.y + ua.z * ua.z)
+
+            self.motionLock.lock()
+            self.latestRotationRate = (rr.x, rr.y, rr.z)
+            self.linearMotionMagnitude = linearMagnitude
+            if linearMagnitude > self.motionGateThreshold {
+                self.motionSettledSampleStreak = 0
+                self.motionGateOpen = false
+            } else {
+                self.motionSettledSampleStreak += 1
+                if self.motionSettledSampleStreak >= self.motionSettleSampleCount {
+                    self.motionGateOpen = true
+                }
+            }
+            self.motionLock.unlock()
+        }
+    }
+
+    override func observeValue(forKeyPath keyPath: String?, of object: Any?, change: [NSKeyValueChangeKey: Any]?, context: UnsafeMutableRawPointer?) {
+        guard let device = object as? AVCaptureDevice else { return }
+        self.focusStateLock.lock()
+        if keyPath == #keyPath(AVCaptureDevice.isAdjustingFocus) {
+            self.isAdjustingFocus = device.isAdjustingFocus
+        } else if keyPath == #keyPath(AVCaptureDevice.isAdjustingExposure) {
+            self.isAdjustingExposure = device.isAdjustingExposure
+        }
+        self.focusStateLock.unlock()
     }
 
     func captureOutput(_ output: AVCaptureOutput, didOutput sampleBuffer: CMSampleBuffer, from connection: AVCaptureConnection) {
+        // Phone is actively sweeping through space; skip decode entirely rather than decoding a
+        // frame we'd discard anyway. Independent of Step 19's focus-settling gate — both must pass.
+        self.motionLock.lock()
+        let motionGateOpen = self.motionGateOpen
+        self.motionLock.unlock()
+        if !motionGateOpen {
+            return
+        }
+
         guard let pixelBuffer = CMSampleBufferGetImageBuffer(sampleBuffer) else { return }
-        
+
         let currentTime = Date().timeIntervalSince1970 * 1000
         if (currentTime - lastAnalysisTimestamp) < scanIntervalMs {
             return
@@ -371,7 +456,15 @@ class ScannerPlatformView: NSObject, FlutterPlatformView, AVCaptureVideoDataOutp
                 var cropWidth: Double = imgWidth
                 var cropHeight: Double = imgHeight
 
-                if self.enableImageCapture {
+                // AF/AE still settling (e.g. mid focus-rack on a close-macro sweep) makes for a soft/hazy photo
+                // even though the decode itself (above) is unaffected; skip the JPEG for this frame only.
+                self.focusStateLock.lock()
+                let stillSettling = self.isAdjustingFocus || self.isAdjustingExposure
+                self.focusStateLock.unlock()
+                var sharpnessScore: Double? = nil
+                var blurRejected = false
+
+                if self.enableImageCapture && !stillSettling {
                     let ciContext = CIContext()
                     let ciImage = CIImage(cvPixelBuffer: pixelBuffer).oriented(cgOrientation)
                     var cMinX = imgWidth, cMaxX = 0.0, cMinY = imgHeight, cMaxY = 0.0
@@ -397,12 +490,25 @@ class ScannerPlatformView: NSObject, FlutterPlatformView, AVCaptureVideoDataOutp
                     let ciCropRect = CGRect(x: cropOriginX, y: imgHeight - cropOriginY - cropHeight,
                                            width: cropWidth, height: cropHeight)
                     if let cgImage = ciContext.createCGImage(ciImage, from: ciCropRect) {
-                        let uiImage = UIImage(cgImage: cgImage)
-                        if let jpegData = uiImage.jpegData(compressionQuality: 0.8) {
-                            imageBytes = FlutterStandardTypedData(bytes: jpegData)
+                        // Opt-in Laplacian check on the bitmap; gates JPEG compression so rejected frames skip that CPU cost too.
+                        if self.rejectBlurryImages {
+                            let variance = self.computeLaplacianVariance(cgImage: cgImage)
+                            sharpnessScore = variance
+                            if let variance = variance, variance < self.blurThreshold {
+                                blurRejected = true
+                            }
+                        }
+                        if !blurRejected {
+                            let uiImage = UIImage(cgImage: cgImage)
+                            if let jpegData = uiImage.jpegData(compressionQuality: 0.8) {
+                                imageBytes = FlutterStandardTypedData(bytes: jpegData)
+                            }
                         }
                     }
                 }
+
+                let imageRejected = stillSettling || blurRejected
+                let imageRejectReason: String? = stillSettling ? "focusSettling" : (blurRejected ? "blurry" : nil)
 
                 let finalAcceptedEntries = acceptedEntries
                 if finalAcceptedEntries.isEmpty {
@@ -416,9 +522,17 @@ class ScannerPlatformView: NSObject, FlutterPlatformView, AVCaptureVideoDataOutp
                     defer {
                         self.imagesCurrentlyBeingProcessed = false
                     }
-                    
+
                     var finalResults: [[String: Any]] = []
-                    
+
+                    // Near-zero-cost motion signal, independent of the Vision decode gate above; the app layer decides what to do with it.
+                    self.motionLock.lock()
+                    let rotationRate = self.latestRotationRate
+                    self.motionLock.unlock()
+                    let gyroMagnitude = sqrt(rotationRate.x * rotationRate.x + rotationRate.y * rotationRate.y + rotationRate.z * rotationRate.z)
+                    let exposureSeconds = self.videoDevice?.exposureDuration.seconds ?? 0.0
+                    let motionBlurRisk = gyroMagnitude * exposureSeconds
+
                     for entry in finalAcceptedEntries {
                         let stringValue = entry.stringValue
                         self.scannedCache[stringValue] = currentTime
@@ -435,9 +549,18 @@ class ScannerPlatformView: NSObject, FlutterPlatformView, AVCaptureVideoDataOutp
                             "corners": adjustedCorners,
                             "imageWidth": Int(cropWidth),
                             "imageHeight": Int(cropHeight),
-                            "imageRejected": false
+                            "imageRejected": imageRejected,
+                            "motionBlurRisk": motionBlurRisk
                         ]
-                        
+
+                        if let reason = imageRejectReason {
+                            result["imageRejectReason"] = reason
+                        }
+
+                        if let score = sharpnessScore {
+                            result["sharpnessScore"] = score
+                        }
+
                         if let bytes = imageBytes {
                             result["imageBytes"] = bytes
                         }
@@ -466,6 +589,68 @@ class ScannerPlatformView: NSObject, FlutterPlatformView, AVCaptureVideoDataOutp
         }
     }
     
+    // Opt-in sharpness check on the cropped photo, mirroring Android's computeLaplacianVarianceFromBitmap:
+    // downsample -> low-light gate -> Laplacian response variance. Only called when rejectBlurryImages is true.
+    private func computeLaplacianVariance(cgImage: CGImage) -> Double? {
+        let srcWidth = cgImage.width
+        let srcHeight = cgImage.height
+        guard srcWidth > 2, srcHeight > 2 else { return nil }
+
+        // Downsample cap mirrors Android's ~62500px ceiling; CG's interpolated draw also acts as a cheap noise pre-pass.
+        let maxDimension = 250
+        let scale = min(1.0, Double(maxDimension) / Double(max(srcWidth, srcHeight)))
+        let width = max(4, Int(Double(srcWidth) * scale))
+        let height = max(4, Int(Double(srcHeight) * scale))
+
+        let colorSpace = CGColorSpaceCreateDeviceGray()
+        guard let context = CGContext(
+            data: nil,
+            width: width,
+            height: height,
+            bitsPerComponent: 8,
+            bytesPerRow: width,
+            space: colorSpace,
+            bitmapInfo: CGImageAlphaInfo.none.rawValue
+        ) else { return nil }
+        context.interpolationQuality = .high
+        context.draw(cgImage, in: CGRect(x: 0, y: 0, width: width, height: height))
+
+        guard let data = context.data else { return nil }
+        let pixels = data.bindMemory(to: UInt8.self, capacity: width * height)
+
+        // Low-light gate: Laplacian variance naturally collapses under noise suppression in dim light,
+        // which would otherwise cause false blur rejections.
+        var lumaSum = 0
+        for i in 0..<(width * height) {
+            lumaSum += Int(pixels[i])
+        }
+        let meanLuma = Double(lumaSum) / Double(width * height)
+        if meanLuma < 40.0 {
+            return nil
+        }
+
+        var sumLaplacian = 0.0
+        var sumLaplacianSq = 0.0
+        var count = 0
+        for y in 1..<(height - 1) {
+            let rowIdx = y * width
+            for x in 1..<(width - 1) {
+                let center = Double(pixels[rowIdx + x])
+                let left = Double(pixels[rowIdx + x - 1])
+                let right = Double(pixels[rowIdx + x + 1])
+                let up = Double(pixels[rowIdx - width + x])
+                let down = Double(pixels[rowIdx + width + x])
+                let lap = up + down + left + right - 4 * center
+                sumLaplacian += lap
+                sumLaplacianSq += lap * lap
+                count += 1
+            }
+        }
+        guard count > 0 else { return nil }
+        let mean = sumLaplacian / Double(count)
+        return (sumLaplacianSq / Double(count)) - (mean * mean)
+    }
+
     // Code 39, ITF-14, and Codabar lack strong checksums; all other Vision symbologies are excluded from this gate.
     private static func isWeakChecksumSymbology(_ symbology: VNBarcodeSymbology) -> Bool {
         if #available(iOS 15.0, *) {
@@ -575,6 +760,12 @@ class ScannerPlatformView: NSObject, FlutterPlatformView, AVCaptureVideoDataOutp
     }
     
     func dispose() {
+        motionManager.stopDeviceMotionUpdates()
+        if let device = focusObserversAddedTo {
+            device.removeObserver(self, forKeyPath: #keyPath(AVCaptureDevice.isAdjustingFocus))
+            device.removeObserver(self, forKeyPath: #keyPath(AVCaptureDevice.isAdjustingExposure))
+            focusObserversAddedTo = nil
+        }
         if let observer = subjectAreaChangeObserver {
             NotificationCenter.default.removeObserver(observer)
             subjectAreaChangeObserver = nil
@@ -593,6 +784,13 @@ class ScannerPlatformView: NSObject, FlutterPlatformView, AVCaptureVideoDataOutp
         _view.videoPreviewLayer.session = nil
         captureSession = nil
         scannedCache.removeAll()
+    }
+
+    deinit {
+        if let device = focusObserversAddedTo {
+            device.removeObserver(self, forKeyPath: #keyPath(AVCaptureDevice.isAdjustingFocus))
+            device.removeObserver(self, forKeyPath: #keyPath(AVCaptureDevice.isAdjustingExposure))
+        }
     }
 
     private func resetFocus() {

@@ -1,6 +1,7 @@
 package com.example.flutter_full_screen_scanner_android
 
 import android.annotation.SuppressLint
+import android.hardware.camera2.CaptureResult
 import androidx.camera.core.ImageAnalysis
 import androidx.camera.core.ImageProxy
 import androidx.camera.view.PreviewView
@@ -71,6 +72,10 @@ class BarcodeAnalyzer(
     private val requireConsecutiveMatches: Int = 1,
     private val scanInterval: Long = 50L,
     private val executor: java.util.concurrent.Executor,
+    private val getGyroRadPerSec: () -> FloatArray = { floatArrayOf(0f, 0f, 0f) },
+    private val getExposureTimeNanos: () -> Long = { 0L },
+    private val getAfState: () -> Int? = { null },
+    private val getMotionGateOpen: () -> Boolean = { true },
     private val onBarcodeDetected: (List<Map<String, Any?>>) -> Unit
 ) : ImageAnalysis.Analyzer {
 
@@ -112,6 +117,14 @@ class BarcodeAnalyzer(
 
     @SuppressLint("UnsafeOptInUsageError")
     override fun analyze(imageProxy: ImageProxy) {
+        // Phone is actively sweeping through space; skip decode entirely rather than decoding a frame
+        // we'd discard anyway. Independent of the AF-settling gate in this file — both must pass.
+        // Must still close the proxy or CameraX's backpressure stalls the next frame from arriving.
+        if (!getMotionGateOpen()) {
+            imageProxy.close()
+            return
+        }
+
         val currentTime = System.currentTimeMillis()
         if (currentTime - lastAnalysisTimestamp < scanInterval) {
             imageProxy.close()
@@ -125,6 +138,19 @@ class BarcodeAnalyzer(
         }
 
         lastAnalysisTimestamp = currentTime
+
+        // Near-zero-cost motion signal (gyroscope magnitude x exposure time); an additional, independent
+        // hint for the app layer, never a gate on the barcode value itself.
+        val gyro = getGyroRadPerSec()
+        val gyroMagnitude = kotlin.math.sqrt((gyro[0] * gyro[0] + gyro[1] * gyro[1] + gyro[2] * gyro[2]).toDouble())
+        val exposureSeconds = getExposureTimeNanos() / 1_000_000_000.0
+        val motionRisk = gyroMagnitude * exposureSeconds
+
+        // AF settled = safe to capture a sharp photo; PASSIVE_SCAN/ACTIVE_SCAN/UNFOCUSED/NOT_FOCUSED_LOCKED/null (still
+        // hunting) are not — this only withholds the JPEG, decode success below is unaffected either way.
+        val afState = getAfState()
+        val afSettled = afState == CaptureResult.CONTROL_AF_STATE_FOCUSED_LOCKED ||
+            afState == CaptureResult.CONTROL_AF_STATE_PASSIVE_FOCUSED
 
         // AtomicBoolean guard ensures imageProxy.close() fires exactly once across all three listener paths.
         val frameReleased = java.util.concurrent.atomic.AtomicBoolean(false)
@@ -243,7 +269,10 @@ class BarcodeAnalyzer(
                 val scanDataList = mutableListOf<ScanData>()
 
                 if (candidates.isNotEmpty()) {
-                    val needsImageCapture = enableImageCapture && candidates.any { it.isNewScan }
+                    val hasNewScan = candidates.any { it.isNewScan }
+                    val needsImageCapture = enableImageCapture && afSettled && hasNewScan
+                    // Distinguishes "no photo because AF/AE was still racking" from "no photo because capture wasn't needed".
+                    val skippedForFocus = enableImageCapture && !afSettled && hasNewScan
 
                     for (data in candidates) {
                         if (data.isNewScan) {
@@ -343,7 +372,9 @@ class BarcodeAnalyzer(
                                           "imageBytes" to if (data.isNewScan && !imageRejected) imageBytes else null,
                                           "timestamp" to currentTime,
                                           "imageRejected" to (data.isNewScan && imageRejected),
-                                          "sharpnessScore" to if (data.isNewScan) sharpnessScore else null
+                                          "imageRejectReason" to if (data.isNewScan && imageRejected) "blurry" else null,
+                                          "sharpnessScore" to if (data.isNewScan) sharpnessScore else null,
+                                          "motionRisk" to motionRisk
                                       )
                                   }
                                   onBarcodeDetected(results)
@@ -362,13 +393,16 @@ class BarcodeAnalyzer(
                                       "imageBytes" to null,
                                       "timestamp" to currentTime,
                                       "imageRejected" to false,
-                                      "sharpnessScore" to null
+                                      "imageRejectReason" to null,
+                                      "sharpnessScore" to null,
+                                      "motionRisk" to motionRisk
                                   )
                               }
                               onBarcodeDetected(results)
                           }
                       } else {
                           val results = scanDataList.map { data ->
+                              val rejectedForFocus = data.isNewScan && skippedForFocus
                               mapOf(
                                   "value" to data.value,
                                   "type" to mapBarcodeFormat(data.format),
@@ -377,8 +411,10 @@ class BarcodeAnalyzer(
                                   "imageHeight" to imgHeight,
                                   "imageBytes" to null,
                                   "timestamp" to currentTime,
-                                  "imageRejected" to false,
-                                  "sharpnessScore" to null
+                                  "imageRejected" to rejectedForFocus,
+                                  "imageRejectReason" to if (rejectedForFocus) "focusSettling" else null,
+                                  "sharpnessScore" to null,
+                                  "motionRisk" to motionRisk
                               )
                           }
                           onBarcodeDetected(results)

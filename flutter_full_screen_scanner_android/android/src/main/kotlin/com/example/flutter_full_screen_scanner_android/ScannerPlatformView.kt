@@ -1,9 +1,16 @@
 package com.example.flutter_full_screen_scanner_android
 
 import android.content.Context
+import android.hardware.Sensor
+import android.hardware.SensorEvent
+import android.hardware.SensorEventListener
+import android.hardware.SensorManager
+import android.hardware.camera2.CameraCaptureSession
 import android.hardware.camera2.CameraCharacteristics
 import android.hardware.camera2.CameraMetadata
 import android.hardware.camera2.CaptureRequest
+import android.hardware.camera2.CaptureResult
+import android.hardware.camera2.TotalCaptureResult
 import android.view.View
 import androidx.camera.camera2.interop.Camera2CameraInfo
 import androidx.camera.camera2.interop.Camera2Interop
@@ -45,6 +52,28 @@ class ScannerPlatformView(
     private var requireConsecutiveMatches: Int = 1
     private var displayListener: android.hardware.display.DisplayManager.DisplayListener? = null
 
+    // Near-zero-cost motion signal (gyroscope x exposure time), independent of the barcode decode gate.
+    private var sensorManager: SensorManager? = null
+    private var gyroscopeListener: SensorEventListener? = null
+    private var linearAccelListener: SensorEventListener? = null
+    private val latestGyro = java.util.concurrent.atomic.AtomicReference(floatArrayOf(0f, 0f, 0f))
+    @Volatile private var latestExposureTimeNanos: Long = 0L
+    @Volatile private var latestAfState: Int? = null
+
+    // Pre-decode motion gate: linear acceleration (gravity already removed) is a better "is the
+    // phone sweeping through space" signal than gyroscope alone, since a sweep between labels is
+    // translation-dominant. Falls back to gyroscope magnitude if TYPE_LINEAR_ACCELERATION is unavailable.
+    @Volatile private var motionGateOpen: Boolean = true
+    private var motionSettledSampleStreak: Int = 0
+    private var usingGyroFallbackForGate = false
+    // Calibrate on-device: log the magnitude while sweeping between labels vs. dwelling on one, and
+    // pick a cutoff between the two clusters. Starting placeholders below.
+    private val motionGateThresholdMs2 = 2.0f // m/s^2, TYPE_LINEAR_ACCELERATION path
+    private val motionGateThresholdGyroFallback = 1.0f // rad/s, fallback path only
+    // Hysteresis: only reopens the gate after this many consecutive settled samples, so a frame right
+    // at the edge of a sweep isn't analyzed while the phone is still decelerating.
+    private val motionSettleSampleCount = 3
+
     init {
         val params = creationParams as? Map<*, *>
         allowDuplicate = params?.get("allowDuplicate") as? Boolean ?: false
@@ -63,6 +92,62 @@ class ScannerPlatformView(
 
         cameraExecutor = Executors.newSingleThreadExecutor()
         startCamera()
+        registerMotionSensor()
+    }
+
+    private fun registerMotionSensor() {
+        val manager = context.getSystemService(Context.SENSOR_SERVICE) as? SensorManager ?: return
+        sensorManager = manager
+
+        val linearAccel = manager.getDefaultSensor(Sensor.TYPE_LINEAR_ACCELERATION)
+        usingGyroFallbackForGate = linearAccel == null
+
+        val gyroscope = manager.getDefaultSensor(Sensor.TYPE_GYROSCOPE)
+        if (gyroscope != null) {
+            val listener = object : SensorEventListener {
+                override fun onSensorChanged(event: SensorEvent) {
+                    latestGyro.set(floatArrayOf(event.values[0], event.values[1], event.values[2]))
+                    // Only drives the motion gate when there's no linear-accel sensor to use instead.
+                    if (usingGyroFallbackForGate) {
+                        val magnitude = kotlin.math.sqrt(
+                            (event.values[0] * event.values[0] + event.values[1] * event.values[1] + event.values[2] * event.values[2]).toDouble()
+                        ).toFloat()
+                        updateMotionGate(magnitude, motionGateThresholdGyroFallback)
+                    }
+                }
+                override fun onAccuracyChanged(sensor: Sensor?, accuracy: Int) {}
+            }
+            manager.registerListener(listener, gyroscope, SensorManager.SENSOR_DELAY_GAME)
+            gyroscopeListener = listener
+        }
+
+        if (linearAccel != null) {
+            val listener = object : SensorEventListener {
+                override fun onSensorChanged(event: SensorEvent) {
+                    val magnitude = kotlin.math.sqrt(
+                        (event.values[0] * event.values[0] + event.values[1] * event.values[1] + event.values[2] * event.values[2]).toDouble()
+                    ).toFloat()
+                    updateMotionGate(magnitude, motionGateThresholdMs2)
+                }
+                override fun onAccuracyChanged(sensor: Sensor?, accuracy: Int) {}
+            }
+            manager.registerListener(listener, linearAccel, SensorManager.SENSOR_DELAY_GAME)
+            linearAccelListener = listener
+        }
+    }
+
+    // Hysteresis: closes the gate immediately on a single over-threshold sample, but only reopens it
+    // once `motionSettleSampleCount` consecutive samples land back under threshold.
+    private fun updateMotionGate(magnitude: Float, threshold: Float) {
+        if (magnitude > threshold) {
+            motionSettledSampleStreak = 0
+            motionGateOpen = false
+        } else {
+            motionSettledSampleStreak++
+            if (motionSettledSampleStreak >= motionSettleSampleCount) {
+                motionGateOpen = true
+            }
+        }
     }
 
     override fun getView(): View {
@@ -70,6 +155,12 @@ class ScannerPlatformView(
     }
 
     override fun dispose() {
+        gyroscopeListener?.let { sensorManager?.unregisterListener(it) }
+        gyroscopeListener = null
+        linearAccelListener?.let { sensorManager?.unregisterListener(it) }
+        linearAccelListener = null
+        sensorManager = null
+
         displayListener?.let {
             val displayManager = context.getSystemService(Context.DISPLAY_SERVICE) as? android.hardware.display.DisplayManager
             displayManager?.unregisterDisplayListener(it)
@@ -135,7 +226,7 @@ class ScannerPlatformView(
                     interop.setCaptureRequestOption(CaptureRequest.CONTROL_VIDEO_STABILIZATION_MODE,
                         CameraMetadata.CONTROL_VIDEO_STABILIZATION_MODE_ON)
                 }
-                if (cam2Info.getCameraCharacteristic(CameraCharacteristics.LENS_INFO_AVAILABLE_OPTICAL_STABILIZATION_MODES)
+                if (cam2Info.getCameraCharacteristic(CameraCharacteristics.LENS_INFO_AVAILABLE_OPTICAL_STABILIZATION)
                         ?.contains(CameraMetadata.LENS_OPTICAL_STABILIZATION_MODE_ON) == true) {
                     interop.setCaptureRequestOption(CaptureRequest.LENS_OPTICAL_STABILIZATION_MODE,
                         CameraMetadata.LENS_OPTICAL_STABILIZATION_MODE_ON)
@@ -159,6 +250,10 @@ class ScannerPlatformView(
                 requireConsecutiveMatches = requireConsecutiveMatches,
                 scanInterval = scanInterval,
                 executor = SafeExecutor(cameraExecutor),
+                getGyroRadPerSec = { latestGyro.get() },
+                getExposureTimeNanos = { latestExposureTimeNanos },
+                getAfState = { latestAfState },
+                getMotionGateOpen = { motionGateOpen },
                 onBarcodeDetected = { results ->
                     ContextCompat.getMainExecutor(context).execute {
                         plugin.eventSink?.success(
@@ -172,11 +267,25 @@ class ScannerPlatformView(
             )
             analyzer = analyzerInstance
 
-            val imageAnalysis = ImageAnalysis.Builder()
+            val imageAnalysisBuilder = ImageAnalysis.Builder()
                 .setResolutionSelector(resolutionSelector)
                 .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
                 .setTargetRotation(initialRotation)
-                .build()
+            Camera2Interop.Extender(imageAnalysisBuilder).setSessionCaptureCallback(
+                object : CameraCaptureSession.CaptureCallback() {
+                    override fun onCaptureCompleted(
+                        session: CameraCaptureSession,
+                        request: CaptureRequest,
+                        result: TotalCaptureResult
+                    ) {
+                        result.get(CaptureResult.SENSOR_EXPOSURE_TIME)?.let {
+                            latestExposureTimeNanos = it
+                        }
+                        latestAfState = result.get(CaptureResult.CONTROL_AF_STATE)
+                    }
+                }
+            )
+            val imageAnalysis = imageAnalysisBuilder.build()
                 .also {
                     it.setAnalyzer(cameraExecutor, analyzerInstance)
                 }
